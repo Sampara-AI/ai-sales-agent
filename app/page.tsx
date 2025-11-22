@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { useRouter } from "next/navigation";
 
 type FormData = {
   name: string;
@@ -19,6 +20,8 @@ type AIResult = {
 };
 
 export default function Home() {
+  const router = useRouter();
+  const formRef = useRef<HTMLDivElement | null>(null);
   const [form, setForm] = useState<FormData>({
     name: "",
     email: "",
@@ -124,6 +127,32 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-black text-zinc-50 flex items-center justify-center px-6">
       <main className="w-full max-w-2xl rounded-2xl border border-white/10 bg-zinc-900 p-8 shadow-2xl">
+        <div className="mb-8 rounded-2xl border border-white/10 bg-zinc-800 p-6 shadow">
+          <div className="text-center">
+            <div className="mx-auto w-full">
+              <div className="rounded-xl border border-white/15 bg-zinc-900 p-4">
+                <div className="text-sm text-zinc-400">Tuple AI - Build AI Capability</div>
+                <div className="mt-1 text-xs text-zinc-500">Not Just Buy AI Services</div>
+              </div>
+            </div>
+            <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <button
+                onClick={() => formRef.current?.scrollIntoView({ behavior: "smooth" })}
+                className="rounded-xl border border-blue-600/30 bg-blue-700/40 px-4 py-4 text-left text-white transition-colors hover:bg-blue-600/60"
+              >
+                <div className="text-base font-semibold">Assess Enterprise Readiness</div>
+                <div className="mt-1 text-sm text-blue-100/90">Custom roadmap for AI implementation</div>
+              </button>
+              <button
+                onClick={() => router.push("/chat")}
+                className="rounded-xl border border-white/10 bg-zinc-700/40 px-4 py-4 text-left text-zinc-100 transition-colors hover:bg-zinc-700"
+              >
+                <div className="text-base font-semibold">Evaluate Team AI Skills</div>
+                <div className="mt-1 text-sm text-zinc-300">Discover if upskilling beats hiring</div>
+              </button>
+            </div>
+          </div>
+        </div>
         <div className="mb-8">
           <h1 className="text-3xl font-semibold tracking-tight">Tell us about your needs</h1>
           <p className="mt-2 text-zinc-400">Share a bit so we can tailor a demo.</p>
@@ -171,6 +200,7 @@ export default function Home() {
           </div>
         )}
 
+        <div ref={formRef} />
         <form onSubmit={handleSubmit} noValidate className="space-y-5">
           <div>
             <label className="block text-sm font-medium text-zinc-300">Name</label>
