@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import ReactMarkdown from "react-markdown";
 import { ResponsiveContainer, RadarChart, PolarGrid, PolarAngleAxis, Radar, BarChart, Bar, XAxis, YAxis, Tooltip } from "recharts";
 
@@ -23,7 +22,6 @@ const Gauge = ({ value }: { value: number }) => {
 };
 
 export default function EnterpriseReportPage() {
-  const sp = useSearchParams();
   const [assessment, setAssessment] = useState<Assessment | null>(null);
   const [company, setCompany] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<string>("");
@@ -37,53 +35,56 @@ export default function EnterpriseReportPage() {
         setAssessment(parsed?.data || null);
       }
     } catch {}
-    const c = sp.get("company");
-    if (c) setCompany(c);
-  }, [sp]);
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const c = params.get("company");
+      if (c) setCompany(c);
+    } catch {}
+  }, []);
 
-  const scores = useMemo(() => {
-    const a = assessment || {};
-    const strategic = (() => {
-      let s = 0;
-      s += a.objective ? 20 : 0;
-      s += a.maturity ? { "Exploring (no AI)": 10, "Experimenting (1-2 pilots)": 40, "Implementing (3-5 projects)": 60, "Scaling (across units)": 80, "Leading (AI-first)": 95 }[a.maturity] || 0;
-      s += a.investment ? { "<\$100K": 10, "$100K-$500K": 30, "$500K-$2M": 50, "$2M-$10M": 70, ">$10M": 90, "Not Determined": 20 }[a.investment] || 0;
-      return Math.min(100, Math.round(s / 2));
-    })();
-    const infrastructure = (() => {
-      let s = 0;
-      s += a.cloud ? { "On-premise only": 10, "Hybrid cloud": 50, "Multi-cloud": 70, "Cloud-native modern stack": 90 }[a.cloud] || 0;
-      s += a.dataInfra ? { "Siloed databases": 15, "Basic warehouse": 40, "Modern data lake": 70, "Real-time platform with MLops": 90 }[a.dataInfra] || 0;
-      s += Array.isArray(a.tooling) ? Math.min(40, a.tooling.length * 8) : 0;
-      s += a.api ? { "Limited": 10, "Basic REST": 40, "Modern architecture": 70, "Event-driven real-time": 85 }[a.api] || 0;
-      return Math.min(100, Math.round(s / 3));
-    })();
-    const dataMaturity = (() => {
-      let s = 0;
-      s += a.dataQuality ? { "Poor/hard access": 10, "Decent/moderate": 40, "Good/accessible": 70, "Excellent/self-service": 90 }[a.dataQuality] || 0;
-      s += a.governance ? { "No formal": 10, "Basic policies": 40, "Comprehensive framework": 70, "Automated with compliance": 90 }[a.governance] || 0;
-      s += Array.isArray(a.privacy) ? Math.min(40, a.privacy.length * 8) : 0;
-      s += a.dataVolume ? { "Limited structured": 25, "Substantial structured": 50, "Multi-modal": 70, "Real-time + historical": 85 }[a.dataVolume] || 0;
-      return Math.min(100, Math.round(s / 3));
-    })();
-    const teamCapability = (() => {
-      let s = 0;
-      s += a.teamSize ? { "No dedicated team": 10, "1-3 people": 30, "4-10": 50, "11-25": 70, "25+": 85, "Distributed across org": 75 }[a.teamSize] || 0;
-      s += Array.isArray(a.skillGaps) ? Math.max(0, 40 - a.skillGaps.length * 5) : 40;
-      s += a.execLiteracy ? { "Low awareness": 10, "Basic understanding": 40, "Good grasp": 70, "Deep technical and strategic understanding": 90 }[a.execLiteracy] || 0;
-      s += a.changeReadiness ? { "Significant resistance": 10, "Some concerns": 40, "Cautiously optimistic": 65, "Strong enthusiasm": 85 }[a.changeReadiness] || 0;
-      return Math.min(100, Math.round(s / 3));
-    })();
-    const roiPotential = (() => {
-      let s = 0;
-      s += Array.isArray(a.useCases) ? Math.min(50, a.useCases.length * 10) : 0;
-      s += a.roiTimeline ? { "<6 months": 90, "6-12 months": 75, "1-2 years": 60, "2-3 years": 45, ">3 years": 30 }[a.roiTimeline] || 0;
-      s += Array.isArray(a.challenges) ? Math.max(0, 40 - a.challenges.length * 5) : 40;
-      return Math.min(100, Math.round(s / 3));
-    })();
-    const overall = Math.round((strategic + infrastructure + dataMaturity + teamCapability + roiPotential) / 5);
-    return { strategic, infrastructure, dataMaturity, teamCapability, roiPotential, overall };
-  }, [assessment]);
+    const scores = useMemo(() => {
+      const a = assessment || {};
+      const strategic = (() => {
+        let s = 0;
+        s += a.objective ? 20 : 0;
+        s += a.maturity ? ({ "Exploring (no AI)": 10, "Experimenting (1-2 pilots)": 40, "Implementing (3-5 projects)": 60, "Scaling (across units)": 80, "Leading (AI-first)": 95 } as any)[a.maturity] || 0 : 0;
+        s += a.investment ? ({ "<$100K": 10, "$100K-$500K": 30, "$500K-$2M": 50, "$2M-$10M": 70, ">$10M": 90, "Not Determined": 20 } as any)[a.investment] || 0 : 0;
+        return Math.min(100, Math.round(s / 2));
+      })();
+      const infrastructure = (() => {
+        let s = 0;
+        s += a.cloud ? ({ "On-premise only": 10, "Hybrid cloud": 50, "Multi-cloud": 70, "Cloud-native modern stack": 90 } as any)[a.cloud] || 0 : 0;
+        s += a.dataInfra ? ({ "Siloed databases": 15, "Basic warehouse": 40, "Modern data lake": 70, "Real-time platform with MLops": 90 } as any)[a.dataInfra] || 0 : 0;
+        s += Array.isArray(a.tooling) ? Math.min(40, a.tooling.length * 8) : 0;
+        s += a.api ? ({ "Limited": 10, "Basic REST": 40, "Modern architecture": 70, "Event-driven real-time": 85 } as any)[a.api] || 0 : 0;
+        return Math.min(100, Math.round(s / 3));
+      })();
+      const dataMaturity = (() => {
+        let s = 0;
+        s += a.dataQuality ? ({ "Poor/hard access": 10, "Decent/moderate": 40, "Good/accessible": 70, "Excellent/self-service": 90 } as any)[a.dataQuality] || 0 : 0;
+        s += a.governance ? ({ "No formal": 10, "Basic policies": 40, "Comprehensive framework": 70, "Automated with compliance": 90 } as any)[a.governance] || 0 : 0;
+        s += Array.isArray(a.privacy) ? Math.min(40, a.privacy.length * 8) : 0;
+        s += a.dataVolume ? ({ "Limited structured": 25, "Substantial structured": 50, "Multi-modal": 70, "Real-time + historical": 85 } as any)[a.dataVolume] || 0 : 0;
+        return Math.min(100, Math.round(s / 3));
+      })();
+      const teamCapability = (() => {
+        let s = 0;
+        s += a.teamSize ? ({ "No dedicated team": 10, "1-3 people": 30, "4-10": 50, "11-25": 70, "25+": 85, "Distributed across org": 75 } as any)[a.teamSize] || 0 : 0;
+        s += Array.isArray(a.skillGaps) ? Math.max(0, 40 - a.skillGaps.length * 5) : 40;
+        s += a.execLiteracy ? ({ "Low awareness": 10, "Basic understanding": 40, "Good grasp": 70, "Deep technical and strategic understanding": 90 } as any)[a.execLiteracy] || 0 : 0;
+        s += a.changeReadiness ? ({ "Significant resistance": 10, "Some concerns": 40, "Cautiously optimistic": 65, "Strong enthusiasm": 85 } as any)[a.changeReadiness] || 0 : 0;
+        return Math.min(100, Math.round(s / 3));
+      })();
+      const roiPotential = (() => {
+        let s = 0;
+        s += Array.isArray(a.useCases) ? Math.min(50, a.useCases.length * 10) : 0;
+        s += a.roiTimeline ? ({ "<6 months": 90, "6-12 months": 75, "1-2 years": 60, "2-3 years": 45, ">3 years": 30 } as any)[a.roiTimeline] || 0 : 0;
+        s += Array.isArray(a.challenges) ? Math.max(0, 40 - a.challenges.length * 5) : 40;
+        return Math.min(100, Math.round(s / 3));
+      })();
+      const overall = Math.round((strategic + infrastructure + dataMaturity + teamCapability + roiPotential) / 5);
+      return { strategic, infrastructure, dataMaturity, teamCapability, roiPotential, overall };
+    }, [assessment]);
 
   useEffect(() => {
     const a = assessment || {};

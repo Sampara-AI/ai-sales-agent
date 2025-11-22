@@ -70,14 +70,14 @@ export async function POST(req: Request) {
       "Return valid JSON with: { report: 'markdown content', lead_score: number, summary: 'one sentence' }";
 
     const convoText = messages.map((m) => `${m.role.toUpperCase()}: ${m.content}`).join("\n");
-    const groqMessages = [
+    const groqMessages: Array<{ role: "system" | "user" | "assistant"; content: string }> = [
       { role: "system", content: system },
       { role: "user", content: convoText },
     ];
 
     const completion = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
-      messages: groqMessages,
+      messages: groqMessages as any,
       temperature: 0.2,
       max_tokens: 1500,
     });
