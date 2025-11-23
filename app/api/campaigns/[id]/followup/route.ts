@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import Groq from "groq-sdk";
@@ -25,7 +25,7 @@ type ProspectRow = {
   ai_score?: number | null;
 };
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
   const groqKey = process.env.GROQ_API_KEY as string | undefined;
@@ -38,7 +38,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const proto = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
   const baseUrl = `${proto}://${host}`;
 
-  const id = String(params?.id || "").trim();
+  const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
 
   let followups_sent = 0;

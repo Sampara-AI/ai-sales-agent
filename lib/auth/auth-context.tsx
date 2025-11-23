@@ -18,8 +18,8 @@ interface AuthContextType {
   user: User | null;
   profile: Profile | null;
   loading: boolean;
-  signIn: (email: string, password: string) => Promise<void>;
-  signUp: (email: string, password: string, fullName: string) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<{ error?: string }>;
+  signUp: (email: string, password: string, fullName: string) => Promise<{ error?: string }>;
   signOut: () => Promise<void>;
   isAdmin: boolean;
 }
@@ -70,14 +70,17 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   }, [supabase]);
 
   const signIn = async (email: string, password: string) => {
-    await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    return error ? { error: error.message } : {};
   };
   const signUp = async (email: string, password: string, fullName: string) => {
-    const { data } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
+    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
+    if (error) return { error: error.message };
     const u = data.user;
     if (u) {
       await supabase.from("profiles").upsert({ user_id: u.id, email, full_name: fullName, company: null, role: "user", subscription_status: "free", onboarding_completed: false }, { onConflict: "user_id" });
     }
+    return {};
   };
   const signOut = async () => {
     await supabase.auth.signOut();

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { Nunito_Sans } from "next/font/google";
 import { useRouter, useSearchParams } from "next/navigation";
 import AuthProvider, { useAuth } from "@/lib/auth/auth-context";
@@ -45,7 +45,9 @@ export default function LoginPage() {
     <div className={`${nunito.className} min-h-screen bg-[#0a0a0f] text-zinc-50`}> 
       <div className="mx-auto w-full max-w-4xl px-6 py-12">
         <AuthProvider>
-          <LoginForm />
+          <Suspense>
+            <LoginForm />
+          </Suspense>
         </AuthProvider>
       </div>
     </div>

@@ -3,7 +3,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Nunito_Sans } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import { useAuth } from "@/lib/supabase/auth-provider";
+import AuthProvider, { useAuth } from "@/lib/supabase/auth-provider";
+import { Suspense } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
 
 const nunito = Nunito_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "700", "800"] });
@@ -14,7 +15,7 @@ type Prospect = { id: string; created_at: string; last_email_sent?: string | nul
 type Run = { id: string; created_at: string; campaign_id: string; run_type: string; status: string; result_summary?: string | null };
 type SetupReq = { id: string; created_at: string; name?: string | null; email?: string | null; company?: string | null; status?: string | null };
 
-export default function AdminPage() {
+function AdminContent() {
   const router = useRouter();
   const supabase = useMemo(() => createClientComponentClient(), []);
   const { user, isAdmin } = useAuth();
@@ -212,5 +213,15 @@ export default function AdminPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function AdminPage() {
+  return (
+    <AuthProvider>
+      <Suspense>
+        <AdminContent />
+      </Suspense>
+    </AuthProvider>
   );
 }

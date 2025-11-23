@@ -135,11 +135,11 @@ export default function CreateCampaignPage() {
 
   const onNext = () => {
     if (!validate(step)) return;
-    setStep((s) => Math.min(5, (s + 1) as Step));
+    setStep((s) => Math.min(5, s + 1) as Step);
   };
   const onPrev = () => {
     setErrors({});
-    setStep((s) => Math.max(1, (s - 1) as Step));
+    setStep((s) => Math.max(1, s - 1) as Step);
   };
 
   const saveCampaign = async (status: "draft" | "active" | "scheduled") => {

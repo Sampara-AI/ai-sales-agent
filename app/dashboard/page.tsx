@@ -239,7 +239,7 @@ export default function DashboardPage() {
     <div className="min-h-screen bg-black text-zinc-50">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-zinc-900/80 px-6 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between pb-3">
-          <div className="text-sm text-zinc-300">Welcome{profile?.name ? `, ${profile.name}` : user?.email ? `, ${user.email}` : ""}</div>
+          <div className="text-sm text-zinc-300">Welcome{profile?.full_name ? `, ${profile.full_name}` : user?.email ? `, ${user.email}` : ""}</div>
           <button onClick={signOut} className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs">Sign Out</button>
         </div>
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

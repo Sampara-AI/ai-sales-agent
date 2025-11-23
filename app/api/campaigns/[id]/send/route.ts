@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
@@ -25,14 +25,14 @@ type DraftRow = {
   status: string;
 };
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const supabase = createRouteHandlerClient({ cookies });
 
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
   const proto = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
   const baseUrl = `${proto}://${host}`;
 
-  const id = String(params?.id || "").trim();
+  const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
 
   let runStatus: "success" | "partial" | "error" = "success";

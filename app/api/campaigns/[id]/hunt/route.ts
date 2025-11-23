@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 
@@ -30,12 +30,13 @@ type CampaignRow = {
   min_ai_score?: number | null;
   send_weekends?: boolean | null;
   schedule_start?: string | null;
+  found_count?: number | null;
 };
 
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const supabase = createRouteHandlerClient({ cookies });
 
-  const id = String(params?.id || "").trim();
+  const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
 
   const nowIso = new Date().toISOString();
