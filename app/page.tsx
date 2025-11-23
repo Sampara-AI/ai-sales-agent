@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Nunito_Sans } from "next/font/google";
 
@@ -13,9 +14,6 @@ export default function Home() {
   type FaqItem = { q: string; a: string };
   const [faqOpen, setFaqOpen] = useState<Record<number, boolean>>({});
   const [email, setEmail] = useState("");
-  const [depLoading, setDepLoading] = useState(false);
-  const [depError, setDepError] = useState<string | null>(null);
-  const [depSuccess, setDepSuccess] = useState<string | null>(null);
   const [callOpen, setCallOpen] = useState(false);
   const [callForm, setCallForm] = useState({ name: "", email: "", preferred_time: "" });
   const [callLoading, setCallLoading] = useState(false);
@@ -26,22 +24,7 @@ export default function Home() {
     try { await fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event, email, meta }) }); } catch {}
   };
 
-  const submitSignup = async (type: "free" | "paid") => {
-    setDepError(null); setDepSuccess(null);
-    const valid = /[^@\s]+@[^@\s]+\.[^@\s]+/.test(email);
-    if (!valid) { setDepError("Enter a valid email"); return; }
-    setDepLoading(true);
-    try {
-      const res = await fetch("/api/signup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email, deployment_type: type }) });
-      const data = await res.json();
-      if (!res.ok || !data.success) { setDepError(data?.error || "Failed"); } else { setDepSuccess("✓ Check your email!"); setEmail(""); }
-      await track(type === "free" ? "signup_free" : "signup_paid");
-    } catch {
-      setDepError("Network error");
-    } finally {
-      setDepLoading(false);
-    }
-  };
+  
 
   const submitSetupCall = async () => {
     setCallError(null); setCallSuccess(null);
@@ -94,6 +77,14 @@ export default function Home() {
               💎 See Paid Comparison
             </button>
           </div>
+          <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
+            <Link href="/assess/enterprise" className="rounded-2xl border border-white/20 bg-white/10 px-6 py-3 backdrop-blur-xl transition-all hover:scale-[1.02] hover:bg-white/15">
+              Assess Enterprise AI Readiness
+            </Link>
+            <Link href="/assess/skills" className="rounded-2xl border border-white/20 bg-white/10 px-6 py-3 backdrop-blur-xl transition-all hover:scale-[1.02] hover:bg-white/15">
+              Evaluate Team AI Skills
+            </Link>
+          </div>
           <div className="mt-12 mx-auto max-w-3xl rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-xl">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 text-sm sm:text-base">
               <div className="text-zinc-200">$240K/year SDR team → $0/month AI agent</div>
@@ -102,15 +93,7 @@ export default function Home() {
             </div>
           </div>
 
-          <div className="mt-8 mx-auto max-w-xl rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-xl">
-            <div className="text-sm text-zinc-300">Get Setup Guide</div>
-            <div className="mt-3 flex gap-2">
-              <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className="flex-1 rounded-xl border border-white/20 bg-white/10 px-3 py-3 text-sm text-zinc-50 outline-none backdrop-blur-xl focus:border-blue-500" />
-              <button disabled={depLoading} onClick={() => submitSignup("free")} className="rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm text-white backdrop-blur-xl transition hover:bg-white/15 disabled:opacity-60">{depLoading ? "..." : "Get Instant Access"}</button>
-            </div>
-            {depError && <div className="mt-2 rounded-lg border border-red-600/30 bg-red-900/30 p-2 text-xs text-red-300">{depError}</div>}
-            {depSuccess && <div className="mt-2 rounded-lg border border-green-600/30 bg-green-900/30 p-2 text-xs text-green-300">{depSuccess}</div>}
-          </div>
+          
         </div>
       </section>
 
@@ -151,6 +134,16 @@ export default function Home() {
             <div className="mt-4 text-sm text-zinc-400">Perfect for: Non-technical founders, busy teams</div>
             <button onClick={() => { setCallOpen(true); track("book_setup_call_click"); }} className="mt-6 w-full rounded-xl border border-white/20 bg-white/10 px-4 py-3 backdrop-blur-xl transition hover:bg-white/15">💎 Book Setup Call</button>
             <div className="mt-2 text-center text-xs text-zinc-400">"Live in 24 hours"</div>
+          </div>
+        </div>
+      </section>
+      <section className="relative mx-auto max-w-6xl px-6 py-16">
+        <div className="rounded-3xl border border-white/20 bg-white/10 p-8 backdrop-blur-xl">
+          <div className="text-lg font-semibold">Get started</div>
+          <div className="mt-2 text-sm text-zinc-300">Enter your work email to begin.</div>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row">
+            <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" className="flex-1 rounded-xl border border-white/20 bg-zinc-900/50 p-3 text-sm" />
+            <button onClick={() => router.push("/auth/signup?from=landing")} className="rounded-xl bg-blue-600 px-4 py-2 text-sm text-white">Continue</button>
           </div>
         </div>
       </section>

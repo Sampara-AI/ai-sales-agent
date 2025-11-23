@@ -115,6 +115,20 @@ function AdminContent() {
     const host = window.location.host; const proto = host.includes("localhost") ? "http" : "https"; const base = `${proto}://${host}`;
     for (const c of (cRes.data || []) as { id: string }[]) { try { await fetch(`${base}/api/campaigns/${c.id}/hunt`, { method: "POST" }); } catch {} }
   };
+  const sendEmailsAll = async () => {
+    const cRes = await supabase.from("hunting_campaigns").select("id").eq("status", "active");
+    const host = window.location.host; const proto = host.includes("localhost") ? "http" : "https"; const base = `${proto}://${host}`;
+    for (const c of (cRes.data || []) as { id: string }[]) { try { await fetch(`${base}/api/campaigns/${c.id}/send`, { method: "POST" }); } catch {} }
+  };
+  const runFollowupsAll = async () => {
+    const cRes = await supabase.from("hunting_campaigns").select("id").eq("status", "active");
+    const host = window.location.host; const proto = host.includes("localhost") ? "http" : "https"; const base = `${proto}://${host}`;
+    for (const c of (cRes.data || []) as { id: string }[]) { try { await fetch(`${base}/api/campaigns/${c.id}/followup`, { method: "POST" }); } catch {} }
+  };
+  const runAutoHuntNow = async () => {
+    const host = window.location.host; const proto = host.includes("localhost") ? "http" : "https"; const base = `${proto}://${host}`;
+    try { await fetch(`${base}/api/cron/auto-hunt`, { method: "POST" }); } catch {}
+  };
   const exportAllData = async () => {
     const pRes = await supabase.from("prospects").select("*");
     const cRes = await supabase.from("hunting_campaigns").select("*");
@@ -199,8 +213,8 @@ function AdminContent() {
             </div>
           </div>
           <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-            <div className="mb-3 text-sm font-semibold">System Controls</div>
-            <div className="flex flex-wrap items-center gap-2"><button onClick={pauseAllCampaigns} className="rounded bg-zinc-800 px-3 py-2 text-sm">Pause All Campaigns</button><button onClick={runManualHuntAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Manual Hunt</button><button onClick={exportAllData} className="rounded bg-zinc-800 px-3 py-2 text-sm">Export All Data</button></div>
+          <div className="mb-3 text-sm font-semibold">System Controls</div>
+            <div className="flex flex-wrap items-center gap-2"><button onClick={pauseAllCampaigns} className="rounded bg-zinc-800 px-3 py-2 text-sm">Pause All Campaigns</button><button onClick={runManualHuntAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Manual Hunt</button><button onClick={sendEmailsAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Send Emails Now</button><button onClick={runFollowupsAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Followups</button><button onClick={runAutoHuntNow} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Auto-Hunt Now</button><button onClick={exportAllData} className="rounded bg-zinc-800 px-3 py-2 text-sm">Export All Data</button></div>
             <div className="mt-3 text-xs text-zinc-400">Use the hunting dashboard to view error logs.</div>
           </div>
         </div>

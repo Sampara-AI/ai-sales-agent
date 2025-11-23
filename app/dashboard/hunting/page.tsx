@@ -27,6 +27,9 @@ type ActivityRun = {
   status: "success" | "partial" | "error";
 };
 
+const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
+const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
+
 export default function HuntingDashboardPage() {
   const [tab, setTab] = useState<"campaigns" | "activity">("campaigns");
   const [loading, setLoading] = useState(true);
@@ -37,8 +40,6 @@ export default function HuntingDashboardPage() {
   const [actionBusy, setActionBusy] = useState<string | null>(null);
 
   useEffect(() => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
     if (!url || !anon) { setError("Supabase not configured"); setLoading(false); return; }
     const s = createClient(url, anon);
     const load = async () => {
@@ -66,8 +67,29 @@ export default function HuntingDashboardPage() {
     load();
   }, []);
 
-  const runNow = async (id: string) => { setActionBusy(id); try { await fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "campaign_run_now", meta: { id } }) }); } finally { setActionBusy(null); } };
-  const pause = async (id: string) => { setActionBusy(id); try { await fetch("/api/analytics", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "campaign_pause", meta: { id } }) }); } finally { setActionBusy(null); } };
+  const runNow = async (id: string) => {
+    setActionBusy(id);
+    try {
+      const res = await fetch(`/api/campaigns/${id}/hunt`, { method: "POST" });
+      if (!res.ok) throw new Error("Hunt failed");
+    } catch (e: any) {
+      setError(e?.message || "Failed to run hunt");
+    } finally {
+      setActionBusy(null);
+    }
+  };
+  const pause = async (id: string) => {
+    setActionBusy(id);
+    try {
+      if (!url || !anon) throw new Error("Supabase not configured");
+      const s = createClient(url, anon);
+      await s.from("hunting_campaigns").update({ status: "paused" }).eq("id", id);
+    } catch (e: any) {
+      setError(e?.message || "Failed to pause");
+    } finally {
+      setActionBusy(null);
+    }
+  };
 
   return (
     <div className={`${nunito.className} min-h-screen bg-[#0a0a0f] text-zinc-50`}> 

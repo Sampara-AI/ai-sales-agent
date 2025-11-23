@@ -35,7 +35,7 @@ export default function RootLayout({
                 <Image src="/logo.png" alt="Tuple AI" width={32} height={32} className="h-8 w-8 rounded-lg border border-white/10 object-cover" />
                 <span className="text-sm font-semibold tracking-wide">Tuple AI</span>
               </Link>
-              <div className="hidden items-center gap-4 sm:flex">
+              <div className="flex items-center gap-4">
                 <Link href="/assess/enterprise" className="text-xs text-zinc-300">Assess</Link>
                 <Link href="/prospects/discover" className="text-xs text-zinc-300">Discover</Link>
                 <Link href="/dashboard" className="text-xs text-zinc-300">Dashboard</Link>

@@ -33,6 +33,7 @@ export default function EnterpriseReportPage() {
       if (raw) {
         const parsed = JSON.parse(raw);
         setAssessment(parsed?.data || null);
+        if (parsed?.serverReport) setAnalysis(parsed.serverReport);
       }
     } catch {}
     try {
@@ -87,6 +88,7 @@ export default function EnterpriseReportPage() {
     }, [assessment]);
 
   useEffect(() => {
+    if (analysis) return;
     const a = assessment || {};
     const lines: string[] = [];
     lines.push(`# Executive Summary`);
@@ -105,7 +107,7 @@ export default function EnterpriseReportPage() {
     lines.push(`2. Address skill gaps in ${Array.isArray(a.skillGaps) && a.skillGaps.length ? a.skillGaps[0] : "core AI roles"}.`);
     lines.push(`3. Define a 12-month roadmap aligned to ${a.objective || "top business objectives"}.`);
     setAnalysis(lines.join("\n"));
-  }, [assessment, scores]);
+  }, [assessment, scores, analysis]);
 
   const maturityColor = scores.overall < 30 ? "bg-red-700/40 text-red-300" : scores.overall < 70 ? "bg-yellow-700/40 text-yellow-300" : "bg-green-700/40 text-green-300";
 

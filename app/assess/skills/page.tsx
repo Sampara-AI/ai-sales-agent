@@ -63,11 +63,19 @@ export default function SkillsAssessmentPage() {
     return e;
   };
 
-  const onNext = () => {
+  const onNext = async () => {
     const v = validate(step);
     if (Object.keys(v).length > 0) { setErrors(v); return; }
     setErrors({});
-    setStep((s) => Math.min(2, s + 1));
+    if (step === 2) {
+      try {
+        const payload = { type: "skills", data: { fullName, email, company, role, teamSize, tools } };
+        const res = await fetch("/api/assess", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+        const js = await res.json();
+        if (js?.success && js?.report) setReport(js.report);
+      } catch {}
+    }
+    setStep((s) => Math.min(3, s + 1));
   };
 
   const onPrev = () => {
@@ -140,14 +148,27 @@ export default function SkillsAssessmentPage() {
               </div>
             </div>
           )}
+          {step === 3 && (
+            <div className="space-y-4">
+              <div className="text-sm text-zinc-300">AI Skills Assessment Insights</div>
+              <div className="rounded-2xl border border-white/10 bg-zinc-900/50 p-4 text-sm">
+                {report ? (
+                  <pre className="whitespace-pre-wrap text-zinc-200">{report}</pre>
+                ) : (
+                  <div className="text-zinc-400">No insights available. Please try again.</div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
-        <div className="mt-6 flex items-center justify-between">
-          <button onClick={onPrev} disabled={step === 1} className="rounded-lg border border-white/10 bg-zinc-800 px-4 py-2 text-sm text-zinc-100 disabled:opacity-50">Previous</button>
-          <div className="flex items-center gap-2">
-            <button onClick={onNext} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">{step === 1 ? "Start Assessment" : "Next"}</button>
+          <div className="mt-6 flex items-center justify-between">
+            <button onClick={onPrev} disabled={step === 1} className="rounded-lg border border-white/10 bg-zinc-800 px-4 py-2 text-sm text-zinc-100 disabled:opacity-50">Previous</button>
+            <div className="flex items-center gap-2">
+            <button onClick={onNext} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">{step === 1 ? "Start Assessment" : step === 2 ? "Finish" : "Done"}</button>
+            </div>
           </div>
-        </div>
       </div>
     </div>
   );
 }
+  const [report, setReport] = useState<string>("");

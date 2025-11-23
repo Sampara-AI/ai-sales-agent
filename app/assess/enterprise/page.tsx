@@ -499,11 +499,19 @@ export default function EnterpriseAssessmentPage() {
 
       <div className="mt-4">
         <button
-          onClick={() => {
-            const v = validateSection(5);
+          onClick={async () => {
+            const v = validateSection(6);
             if (Object.keys(v).length > 0) { setErrors(v); return; }
-            localStorage.setItem("enterprise_assessment_result_v1", JSON.stringify({ data }));
-            router.push("/assess/enterprise/report");
+            try {
+              const res = await fetch("/api/assess", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ type: "enterprise", data }) });
+              const js = await res.json();
+              const serverReport = js?.report || "";
+              localStorage.setItem("enterprise_assessment_result_v1", JSON.stringify({ data, serverReport }));
+              router.push("/assess/enterprise/report");
+            } catch {
+              localStorage.setItem("enterprise_assessment_result_v1", JSON.stringify({ data }));
+              router.push("/assess/enterprise/report");
+            }
           }}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white"
         >
