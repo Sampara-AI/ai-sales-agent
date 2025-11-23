@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useAuth } from "@/lib/auth/auth-context";
 import { createClient } from "@supabase/supabase-js";
 
 type Prospect = {
@@ -42,6 +44,7 @@ type EmailPreview = {
 };
 
 export default function DashboardPage() {
+  const { user, profile, signOut } = useAuth();
   const supabase = useMemo(() => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
     const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
@@ -72,6 +75,7 @@ export default function DashboardPage() {
   const [chosenSubject, setChosenSubject] = useState<string>("");
   const [emailSending, setEmailSending] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [activeCampaigns, setActiveCampaigns] = useState(0);
 
   useEffect(() => {
     const load = async () => {
@@ -95,6 +99,8 @@ export default function DashboardPage() {
         const replyRate = emailsSent ? Math.round((replies / emailsSent) * 100) : 0;
         const bookedThisWeek = rows.filter((p) => p.meeting_booked && p.contacted_at && new Date(p.contacted_at) >= startOfWeek).length;
         setMetrics({ totalProspects, emailsSent, replies, meetings, plusThisWeek, plusTodayEmails, replyRate, bookedThisWeek });
+        const act = await supabase.from("hunting_campaigns").select("id", { count: "exact", head: true }).eq("status", "active");
+        setActiveCampaigns(act.count || 0);
         const channel = supabase.channel("prospects-updates").on("postgres_changes", { event: "*", schema: "public", table: "prospects" }, (payload) => {
           setProspects((prev) => {
             const idx = prev.findIndex((x) => x.id === (payload.new as any)?.id);
@@ -232,6 +238,10 @@ export default function DashboardPage() {
   return (
     <div className="min-h-screen bg-black text-zinc-50">
       <header className="sticky top-0 z-10 border-b border-white/10 bg-zinc-900/80 px-6 py-4 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center justify-between pb-3">
+          <div className="text-sm text-zinc-300">Welcome{profile?.name ? `, ${profile.name}` : user?.email ? `, ${user.email}` : ""}</div>
+          <button onClick={signOut} className="rounded-lg border border-white/10 bg-white/5 px-3 py-1 text-xs">Sign Out</button>
+        </div>
         <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           <div className="rounded-xl border border-white/10 bg-zinc-800 p-4">
             <div className="text-sm text-zinc-400">Total Prospects</div>
@@ -257,6 +267,24 @@ export default function DashboardPage() {
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-6">
+        <div className="mb-4 flex items-center justify-between">
+          <Link href="/dashboard/hunting" className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">
+            <span>🎯 Hunting Campaigns</span>
+            <span className="rounded-full bg-blue-600 px-2 py-0.5 text-xs text-white">{activeCampaigns}</span>
+          </Link>
+          <Link href="/dashboard/hunting/create" className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white">+ New Campaign</Link>
+        </div>
+
+        <div className="mb-6 rounded-2xl border border-white/10 bg-zinc-900 p-6">
+          <div className="text-lg font-semibold">🎯 Hunting Campaigns</div>
+          <div className="mt-1 text-sm text-zinc-300">{activeCampaigns} active campaigns | {prospects.filter((p) => new Date(p.created_at).toDateString() === new Date().toDateString()).length} prospects found today</div>
+          <div className="mt-4">
+            <Link href="/dashboard/hunting" className="inline-flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm">
+              <span>Manage Campaigns</span>
+              <span>→</span>
+            </Link>
+          </div>
+        </div>
         <div className="mb-4 flex flex-wrap items-center gap-3">
           <a href="/prospects/add" className="rounded-lg bg-blue-600 px-3 py-2 text-sm text-white hover:bg-blue-500">+ Add Prospect</a>
           <a href="/prospects/discover" className="rounded-lg bg-zinc-800 px-3 py-2 text-sm text-zinc-100 hover:bg-zinc-700">🔍 Discover Prospects</a>

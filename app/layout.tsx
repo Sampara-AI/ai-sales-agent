@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
+import AuthProvider from "@/lib/auth/auth-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -31,7 +32,7 @@ export default function RootLayout({
           <header className="z-20 w-full border-b border-white/10 bg-white/5 backdrop-blur-xl">
             <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
               <Link href="/" className="flex items-center gap-3">
-                <div className="h-8 w-8 rounded-lg bg-gradient-to-br from-purple-500 to-blue-500" />
+                <Image src="/logo.png" alt="Tuple AI" width={32} height={32} className="h-8 w-8 rounded-lg border border-white/10 object-cover" />
                 <span className="text-sm font-semibold tracking-wide">Tuple AI</span>
               </Link>
               <div className="hidden items-center gap-4 sm:flex">
@@ -42,7 +43,9 @@ export default function RootLayout({
             </div>
           </header>
           <main className="flex-1">
-            {children}
+            <AuthProvider>
+              {children}
+            </AuthProvider>
           </main>
           <footer className="mt-12 border-t border-white/10 bg-white/5 py-6 backdrop-blur-xl">
             <div className="mx-auto max-w-7xl px-6 text-xs text-zinc-300">

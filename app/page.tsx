@@ -87,8 +87,8 @@ export default function Home() {
             Minimum Cost. Maximum Value. Full Control.
           </p>
           <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
-            <button onClick={() => router.push("/assess/enterprise")} className="rounded-2xl border border-white/20 bg-white/10 px-6 py-3 backdrop-blur-xl transition-all hover:scale-[1.02] hover:bg-white/15">
-              🚀 Deploy Free Version
+            <button onClick={() => router.push("/auth/signup")} className="rounded-2xl border border-white/20 bg-white/10 px-6 py-3 backdrop-blur-xl transition-all hover:scale-[1.02] hover:bg-white/15">
+              🚀 Get Started
             </button>
             <button onClick={() => setModalOpen(true)} className="rounded-2xl border border-white/20 bg-white/10 px-6 py-3 backdrop-blur-xl transition-all hover:scale-[1.02] hover:bg-white/15">
               💎 See Paid Comparison
@@ -224,7 +224,7 @@ export default function Home() {
               🎯 Recommendation: Start free, scale when you need
             </div>
             <div className="mt-4 flex items-center justify-end gap-2">
-            <button onClick={async () => { setModalOpen(false); await track("modal_start_free"); router.push("/assess/enterprise"); }} className="rounded-xl border border-white/20 bg-white/10 px-4 py-2">Start With Free</button>
+            <button onClick={async () => { setModalOpen(false); await track("modal_start_free"); router.push("/auth/signup"); }} className="rounded-xl border border-white/20 bg-white/10 px-4 py-2">Start With Free</button>
               <button onClick={async () => { setModalOpen(false); await track("modal_go_pro"); router.push("/prospects/discover"); }} className="rounded-xl border border-white/20 bg-white/10 px-4 py-2">Go Pro Immediately</button>
           </div>
         </div>
@@ -236,7 +236,7 @@ export default function Home() {
           <div className="text-3xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-400 to-blue-400">Ready to Replace Your Sales Team?</div>
           <div className="mt-2 text-zinc-300">Choose your path. Both work. Both are yours forever.</div>
           <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
-            <button onClick={async () => { await track("cta_deploy_free"); router.push("/assess/enterprise"); }} className="rounded-2xl border border-white/20 bg-white/10 px-6 py-3">Deploy Free Version</button>
+            <button onClick={async () => { await track("cta_deploy_free"); router.push("/auth/signup"); }} className="rounded-2xl border border-white/20 bg-white/10 px-6 py-3">Deploy Free Version</button>
             <button onClick={() => { setCallOpen(true); track("cta_get_setup"); }} className="rounded-2xl border border-white/20 bg-white/10 px-6 py-3">Get Professional Setup</button>
           </div>
           <div className="mt-3 text-sm text-zinc-400">Questions? <a href="mailto:founders@tupleai.co.in" className="underline">founders@tupleai.co.in</a></div>
