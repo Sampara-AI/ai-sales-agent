@@ -98,6 +98,23 @@ export default function Home() {
       </section>
 
       <section className="relative mx-auto max-w-6xl px-6 py-16">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div className="rounded-3xl border border-white/20 bg-white/10 p-6 backdrop-blur-xl">
+            <div className="text-3xl">🏢</div>
+            <div className="mt-3 text-xl font-semibold">Assess Enterprise AI Readiness</div>
+            <div className="mt-2 text-sm text-zinc-300">Get a custom roadmap for implementing AI across your organization - architecture, ROI, and integration strategy</div>
+            <Link href="/assess/enterprise" className="mt-6 inline-block rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm backdrop-blur-xl transition hover:bg-white/15">Start Enterprise Assessment</Link>
+          </div>
+          <div className="rounded-3xl border border-white/20 bg-white/10 p-6 backdrop-blur-xl">
+            <div className="text-3xl">👥</div>
+            <div className="mt-3 text-xl font-semibold">Evaluate Team AI Capabilities</div>
+            <div className="mt-2 text-sm text-zinc-300">Before hiring externally, discover if upskilling your current team is faster and more cost-effective</div>
+            <Link href="/assess/skills" className="mt-6 inline-block rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm backdrop-blur-xl transition hover:bg-white/15">Start Skills Assessment</Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="relative mx-auto max-w-6xl px-6 py-16">
         <div className="grid grid-cols-1 gap-8 md:grid-cols-2">
           <div className="rounded-3xl border border-white/20 bg-white/10 p-6 backdrop-blur-xl shadow-2xl">
             <div className="text-sm text-zinc-400">🛠️ ONE-TIME SETUP</div>
