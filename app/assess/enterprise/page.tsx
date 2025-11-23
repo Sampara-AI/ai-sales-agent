@@ -22,6 +22,8 @@ type RoiTimeline = "<6 months" | "6-12 months" | "1-2 years" | "2-3 years" | ">3
 type Challenge = "Budget" | "Lack of talent" | "Data quality" | "Integration complexity" | "Regulatory" | "Executive buy-in" | "Proving ROI" | "Change management" | "Security";
 
 type Assessment = {
+  fullName?: string;
+  company?: string;
   objective?: Objective;
   maturity?: Maturity;
   investment?: Investment;
@@ -126,7 +128,7 @@ export default function EnterpriseAssessmentPage() {
     }
   }, [step, data]);
 
-  const totalSteps = 5;
+  const totalSteps = 6;
   const progress = Math.round((step / totalSteps) * 100);
 
   const onNext = () => {
@@ -139,6 +141,42 @@ export default function EnterpriseAssessmentPage() {
     setStep((s) => Math.min(totalSteps, s + 1));
   };
 
+  const IntroDetails = () => (
+    <div className="space-y-6">
+      <div>
+        <div className="text-sm font-medium text-zinc-300">Full name</div>
+        <input
+          value={data.fullName || ""}
+          onChange={(e) => setData((d) => ({ ...d, fullName: e.target.value }))}
+          className="mt-2 w-full rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm"
+          placeholder="Jane Smith"
+        />
+        {errors.fullName && <p className="mt-1 text-xs text-red-400">{errors.fullName}</p>}
+      </div>
+      <div>
+        <div className="text-sm font-medium text-zinc-300">Company</div>
+        <input
+          value={data.company || ""}
+          onChange={(e) => setData((d) => ({ ...d, company: e.target.value }))}
+          className="mt-2 w-full rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm"
+          placeholder="Acme Corp"
+        />
+        {errors.company && <p className="mt-1 text-xs text-red-400">{errors.company}</p>}
+      </div>
+      <div>
+        <div className="text-sm font-medium text-zinc-300">Work email</div>
+        <input
+          type="email"
+          value={data.email || ""}
+          onChange={(e) => setData((d) => ({ ...d, email: e.target.value }))}
+          className="mt-2 w-full rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm"
+          placeholder="you@company.com"
+        />
+        {errors.email && <p className="mt-1 text-xs text-red-400">{errors.email}</p>}
+      </div>
+    </div>
+  );
+
   const onPrev = () => {
     setErrors({});
     setStep((s) => Math.max(1, s - 1));
@@ -147,25 +185,30 @@ export default function EnterpriseAssessmentPage() {
   const validateSection = (s: number): Record<string, string> => {
     const e: Record<string, string> = {};
     if (s === 1) {
+      const emailRegex = /[^@\s]+@[^@\s]+\.[^@\s]+/;
+      if (!data.fullName) e.fullName = "Enter your full name";
+      if (!data.company) e.company = "Enter your company";
+      if (!data.email || !emailRegex.test(data.email)) e.email = "Enter a valid email";
+    } else if (s === 2) {
       if (!data.objective) e.objective = "Select an objective";
       if (!data.maturity) e.maturity = "Select maturity";
       if (!data.investment) e.investment = "Select investment";
-    } else if (s === 2) {
+    } else if (s === 3) {
       if (!data.cloud) e.cloud = "Select cloud maturity";
       if (!data.dataInfra) e.dataInfra = "Select data infrastructure";
       if (!data.api) e.api = "Select API capability";
       if (!data.tooling?.length) e.tooling = "Choose at least one tooling option";
-    } else if (s === 3) {
+    } else if (s === 4) {
       if (!data.dataQuality) e.dataQuality = "Select data quality";
       if (!data.governance) e.governance = "Select governance";
       if (!data.privacy?.length) e.privacy = "Select at least one privacy/compliance option";
       if (!data.dataVolume) e.dataVolume = "Select data volume/variety";
-    } else if (s === 4) {
+    } else if (s === 5) {
       if (!data.teamSize) e.teamSize = "Select team size";
       if (!data.skillGaps?.length) e.skillGaps = "Select at least one skill gap";
       if (!data.execLiteracy) e.execLiteracy = "Select executive AI literacy";
       if (!data.changeReadiness) e.changeReadiness = "Select change readiness";
-    } else if (s === 5) {
+    } else if (s === 6) {
       if (!data.useCases?.length) e.useCases = "Select at least one use case";
       if (!data.roiTimeline) e.roiTimeline = "Select ROI timeline";
       if (!data.challenges?.length) e.challenges = "Select at least one challenge";
@@ -488,11 +531,12 @@ export default function EnterpriseAssessmentPage() {
         </div>
 
         <div className="rounded-2xl border border-white/10 bg-zinc-900 p-6">
-          {step === 1 && <SectionOne />}
-          {step === 2 && <SectionTwo />}
-          {step === 3 && <SectionThree />}
-          {step === 4 && <SectionFour />}
-          {step === 5 && <SectionFive />}
+          {step === 1 && <IntroDetails />}
+          {step === 2 && <SectionOne />}
+          {step === 3 && <SectionTwo />}
+          {step === 4 && <SectionThree />}
+          {step === 5 && <SectionFour />}
+          {step === 6 && <SectionFive />}
         </div>
 
         <div className="mt-6 flex items-center justify-between">
