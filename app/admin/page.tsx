@@ -218,10 +218,10 @@ function AdminContent() {
 
 export default function AdminPage() {
   return (
-    <AuthProvider>
-      <Suspense>
+    <Suspense>
+      <AuthProvider>
         <AdminContent />
-      </Suspense>
-    </AuthProvider>
+      </AuthProvider>
+    </Suspense>
   );
 }
