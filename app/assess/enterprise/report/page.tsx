@@ -121,9 +121,13 @@ export default function EnterpriseReportPage() {
 
   const onDownload = async () => {
     if (!containerRef.current) return;
-    const mod = await import("html2pdf.js");
-    const opt = { margin: 0.5, filename: "Enterprise_AI_Readiness_Report.pdf", image: { type: "jpeg", quality: 0.95 }, html2canvas: { scale: 2 }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" } } as any;
-    mod.default(containerRef.current, opt).save();
+    try {
+      const html2pdf = (await import("html2pdf.js")).default as any;
+      const opt = { margin: 0.5, filename: "Enterprise_AI_Readiness_Report.pdf", image: { type: "jpeg", quality: 0.95 }, html2canvas: { scale: 2 }, jsPDF: { unit: "in", format: "letter", orientation: "portrait" } } as any;
+      html2pdf().set(opt).from(containerRef.current).save();
+    } catch {
+      try { window.print(); } catch {}
+    }
   };
 
   const [sendOpen, setSendOpen] = useState(false);
@@ -132,6 +136,9 @@ export default function EnterpriseReportPage() {
   const [sendName, setSendName] = useState("");
   const [sendFrom, setSendFrom] = useState("");
   const [sendError, setSendError] = useState<string | null>(null);
+  useEffect(() => {
+    setSendTo(assessment?.email || "");
+  }, [assessment]);
   const sendReport = async () => {
     setSendError(null);
     if (!sendTo || !sendName || !sendFrom) { setSendError("Enter recipient, your name, and email"); return; }

@@ -16,6 +16,7 @@ export default function SkillsAssessmentPage() {
   const [role, setRole] = useState("Data Scientist");
   const [teamSize, setTeamSize] = useState("1-3");
   const [tools, setTools] = useState<string[]>([]);
+  const [report, setReport] = useState<string>("");
 
   useEffect(() => {
     try {
@@ -171,4 +172,3 @@ export default function SkillsAssessmentPage() {
     </div>
   );
 }
-  const [report, setReport] = useState<string>("");
