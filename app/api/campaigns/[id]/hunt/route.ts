@@ -34,6 +34,7 @@ type CampaignRow = {
 };
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const isDev = process.env.NODE_ENV === "development";
   const supabase = createRouteHandlerClient({ cookies });
 
   const id = String((await params)?.id || "").trim();
@@ -48,7 +49,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   try {
     const { data: userData } = await supabase.auth.getUser();
-    const currentUser = userData.user;
+    let currentUser = userData.user as any;
+    if (!currentUser && isDev) {
+      currentUser = { id: "dev", email: "dev@local.com" };
+    }
     if (!currentUser) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     const cRes = await supabase
       .from("hunting_campaigns")
@@ -57,12 +61,40 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .single();
     if (cRes.error || !cRes.data) return NextResponse.json({ success: false, error: cRes.error?.message || "Campaign not found" }, { status: 404 });
     const c = cRes.data as CampaignRow;
-    const pr = await supabase.from("profiles").select("role").eq("user_id", currentUser.id).single();
-    const isAdmin = (pr.data as any)?.role === "admin";
-    if (!isAdmin && c && (c as any).created_by && (c as any).created_by !== currentUser.id) {
-      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+    let isAdmin = false;
+    if (isDev) {
+      isAdmin = true;
+    } else {
+      const pr = await supabase.from("profiles").select("role").eq("user_id", currentUser.id).single();
+      isAdmin = (pr.data as any)?.role === "admin";
+      if (!isAdmin && c && (c as any).created_by && (c as any).created_by !== currentUser.id) {
+        return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+      }
     }
     if (!["active", "draft"].includes(String(c.status))) return NextResponse.json({ success: false, error: "Campaign not in runnable state" }, { status: 400 });
+
+    if (!isDev) {
+      const prSub = await supabase.from("profiles").select("subscription_status").eq("user_id", currentUser.id).single();
+      const tier = String((prSub.data as any)?.subscription_status || "free").toLowerCase();
+      const monthlyLimit = tier === "paid" || tier === "pro" ? 10 : 2;
+      const start = new Date();
+      start.setDate(1);
+      start.setHours(0, 0, 0, 0);
+      const ownCampaignsRes = await supabase.from("hunting_campaigns").select("id").eq("created_by", currentUser.id);
+      const ownIds = ((ownCampaignsRes.data || []) as { id: string }[]).map((x) => x.id);
+      if (ownIds.length > 0) {
+        const huntsCountRes = await supabase
+          .from("hunting_campaign_runs")
+          .select("id", { count: "exact", head: true })
+          .eq("run_type", "hunt")
+          .gte("created_at", start.toISOString())
+          .in("campaign_id", ownIds);
+        const huntsThisMonth = huntsCountRes.count || 0;
+        if (huntsThisMonth >= monthlyLimit) {
+          return NextResponse.json({ success: false, error: "Monthly hunt limit reached" }, { status: 429 });
+        }
+      }
+    }
 
     const perPage = Math.max(1, Math.min(100, Number(c.daily_prospect_limit || 20)));
     const titles = Array.isArray(c.titles) ? c.titles : [];
@@ -175,7 +207,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         source: `campaign:${id}`,
         campaign_id: id,
       };
-      const ins = await supabase.from("prospects").insert({ ...insPayload, user_id: currentUser.id }).select("id").single();
+      const insPayloadFinal = isDev ? { ...insPayload } : { ...insPayload, user_id: currentUser.id };
+      const ins = await supabase.from("prospects").insert(insPayloadFinal).select("id").single();
       if (ins.error) continue;
       prospects_added += 1;
       if (aiScore != null && aiScore >= minScore) {

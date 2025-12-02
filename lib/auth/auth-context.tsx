@@ -39,6 +39,21 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  if (process.env.NODE_ENV === "development") {
+    const devUser = { id: "dev", email: "dev@local.com" } as any;
+    const devProfile: Profile = { id: "dev", email: "dev@local.com", full_name: "Developer", company: "Local", role: "admin", subscription_status: "free", onboarding_completed: true };
+    const mock: AuthContextType = {
+      user: devUser,
+      profile: devProfile,
+      loading: false,
+      isAdmin: true,
+      signIn: async () => ({}),
+      signUp: async () => ({}),
+      signOut: async () => {},
+    };
+    return <Ctx.Provider value={mock}>{children}</Ctx.Provider>;
+  }
+
   useEffect(() => {
     let mounted = true;
     const init = async () => {

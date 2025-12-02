@@ -27,17 +27,36 @@ type ActivityRun = {
   status: "success" | "partial" | "error";
 };
 
+type Prospect = {
+  id: string;
+  created_at: string;
+  name: string;
+  title?: string | null;
+  company?: string | null;
+  email?: string | null;
+  ai_score?: number | null;
+  status?: string | null;
+  last_email_sent?: string | null;
+  replied?: boolean | null;
+  meeting_booked?: boolean | null;
+  source?: string | null;
+};
+
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
 const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
 
 export default function HuntingDashboardPage() {
-  const [tab, setTab] = useState<"campaigns" | "activity">("campaigns");
+  const [tab, setTab] = useState<"campaigns" | "activity" | "prospects">("campaigns");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [runs, setRuns] = useState<ActivityRun[]>([]);
   const [stats, setStats] = useState({ active: 0, emailsToday: 0, meetings: 0, replies: 0, dailyLimit: 100 });
   const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [prospects, setProspects] = useState<Prospect[]>([]);
+  const [huntProgress, setHuntProgress] = useState<number | null>(null);
+  const [huntText, setHuntText] = useState<string>("");
+  const [timerId, setTimerId] = useState<any>(null);
 
   useEffect(() => {
     if (!url || !anon) { setError("Supabase not configured"); setLoading(false); return; }
@@ -58,6 +77,13 @@ export default function HuntingDashboardPage() {
         const nameById: Record<string,string> = {}; campaignsData.forEach((c) => nameById[c.id] = c.name);
         runsData.forEach((r) => r.campaign_name = nameById[r.campaign_id]);
         setRuns(runsData);
+
+        const pRes = await s
+          .from("prospects")
+          .select("id,created_at,name,title,company,email,ai_score,status,last_email_sent,replied,meeting_booked,source")
+          .order("created_at", { ascending: false })
+          .limit(100);
+        setProspects(((pRes.data || []) as Prospect[]));
       } catch (e: any) {
         setError("Failed to load data");
       } finally {
@@ -69,13 +95,27 @@ export default function HuntingDashboardPage() {
 
   const runNow = async (id: string) => {
     setActionBusy(id);
+    setHuntText("Hunt in progress…");
+    setHuntProgress(0);
+    const t = setInterval(() => {
+      setHuntProgress((p) => {
+        const v = typeof p === "number" ? p : 0;
+        return Math.min(95, v + 5);
+      });
+    }, 400);
+    setTimerId(t);
     try {
       const res = await fetch(`/api/campaigns/${id}/hunt`, { method: "POST" });
       if (!res.ok) throw new Error("Hunt failed");
+      setHuntProgress(100);
+      setHuntText("Hunt completed");
     } catch (e: any) {
       setError(e?.message || "Failed to run hunt");
+      setHuntText("Hunt failed");
     } finally {
       setActionBusy(null);
+      if (timerId) clearInterval(timerId);
+      setTimeout(() => { setHuntProgress(null); setHuntText(""); }, 1500);
     }
   };
   const pause = async (id: string) => {
@@ -113,9 +153,19 @@ export default function HuntingDashboardPage() {
           </div>
         </div>
 
+        {huntProgress != null && (
+          <div className="mt-4 rounded-2xl border border-white/20 bg-white/10 p-4">
+            <div className="mb-2 text-sm text-zinc-300">{huntText}</div>
+            <div className="h-2 w-full rounded-full bg-zinc-800">
+              <div className="h-2 rounded-full bg-blue-600" style={{ width: `${huntProgress}%` }}></div>
+            </div>
+          </div>
+        )}
+
         <div className="mt-8 flex items-center gap-3">
           <button onClick={() => setTab("campaigns")} className={`rounded-xl border px-3 py-2 text-sm ${tab === "campaigns" ? "border-blue-500 bg-blue-600 text-white" : "border-white/20 bg-white/10 text-zinc-200"}`}>Campaigns</button>
           <button onClick={() => setTab("activity")} className={`rounded-xl border px-3 py-2 text-sm ${tab === "activity" ? "border-blue-500 bg-blue-600 text-white" : "border-white/20 bg-white/10 text-zinc-200"}`}>Activity Log</button>
+          <button onClick={() => setTab("prospects")} className={`rounded-xl border px-3 py-2 text-sm ${tab === "prospects" ? "border-blue-500 bg-blue-600 text-white" : "border-white/20 bg-white/10 text-zinc-200"}`}>Prospects</button>
         </div>
 
         {loading && (
@@ -133,7 +183,7 @@ export default function HuntingDashboardPage() {
         {!loading && !error && tab === "campaigns" && (
           <div className="mt-8">
             <div className="mb-4 flex justify-end">
-              <button className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm">+ Create New Campaign</button>
+              <a href="/dashboard/hunting/create" className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm">+ Create New Campaign</a>
             </div>
             {campaigns.length === 0 ? (
               <div className="rounded-2xl border border-white/20 bg-white/10 p-6 text-center text-sm text-zinc-300">No campaigns yet</div>
@@ -194,6 +244,52 @@ export default function HuntingDashboardPage() {
                           <span className={`rounded-full border px-3 py-1 text-xs ${r.status === "success" ? "border-green-600/40 bg-green-700/30 text-green-300" : r.status === "partial" ? "border-yellow-600/40 bg-yellow-700/30 text-yellow-300" : "border-red-600/40 bg-red-700/30 text-red-300"}`}>{r.status.toUpperCase()}</span>
                         </td>
                         <td className="p-2"><button className="rounded-xl border border-white/20 bg-white/10 px-3 py-1">View Details</button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {!loading && !error && tab === "prospects" && (
+          <div className="mt-8">
+            <div className="mb-3 text-xs text-zinc-400">Supabase table: prospects</div>
+            {prospects.length === 0 ? (
+              <div className="rounded-2xl border border-white/20 bg-white/10 p-6 text-center text-sm text-zinc-300">No prospects yet</div>
+            ) : (
+              <div className="overflow-x-auto rounded-2xl border border-white/20 bg-white/10">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-zinc-300">
+                      <th className="p-2 text-left">Added</th>
+                      <th className="p-2 text-left">Name</th>
+                      <th className="p-2 text-left">Title</th>
+                      <th className="p-2 text-left">Company</th>
+                      <th className="p-2 text-left">Email</th>
+                      <th className="p-2 text-left">AI Score</th>
+                      <th className="p-2 text-left">Status</th>
+                      <th className="p-2 text-left">Email Sent</th>
+                      <th className="p-2 text-left">Replied</th>
+                      <th className="p-2 text-left">Follow-up</th>
+                      <th className="p-2 text-left">Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {prospects.map((p) => (
+                      <tr key={p.id} className="border-t border-white/10">
+                        <td className="p-2">{new Date(p.created_at).toLocaleString()}</td>
+                        <td className="p-2">{p.name}</td>
+                        <td className="p-2">{p.title || "—"}</td>
+                        <td className="p-2">{p.company || "—"}</td>
+                        <td className="p-2">{p.email || "—"}</td>
+                        <td className="p-2">{p.ai_score != null ? p.ai_score : "—"}</td>
+                        <td className="p-2">{p.status || "—"}</td>
+                        <td className="p-2">{p.last_email_sent ? new Date(p.last_email_sent).toLocaleDateString() : "—"}</td>
+                        <td className="p-2">{p.replied ? "Yes" : "No"}</td>
+                        <td className="p-2">{p.meeting_booked ? "Booked" : "—"}</td>
+                        <td className="p-2">{p.source || "—"}</td>
                       </tr>
                     ))}
                   </tbody>

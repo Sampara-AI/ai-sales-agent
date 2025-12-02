@@ -29,7 +29,34 @@ type CampaignData = {
 };
 
 const defaultTitles = ["CTO","VP Engineering","Head of AI","Director of AI/ML","Chief Data Officer"];
-const industryOptions = ["SaaS","Fintech","Healthcare","E-commerce","Manufacturing","Technology","Consulting","Other"];
+const industryOptions = [
+  "Technology",
+  "SaaS",
+  "BFSI",
+  "Telecom",
+  "Healthcare",
+  "Pharmaceuticals & Biotech",
+  "Retail",
+  "E-commerce",
+  "Manufacturing",
+  "Automotive",
+  "Energy",
+  "Utilities",
+  "Media & Entertainment",
+  "Transportation & Logistics",
+  "Real Estate",
+  "Insurance",
+  "Agriculture",
+  "Construction",
+  "Travel & Hospitality",
+  "Aerospace & Defense",
+  "Education",
+  "Government",
+  "Consulting",
+  "Consumer Goods",
+  "Non-Profit",
+  "Other",
+];
 const locationOptions = ["United States","United Kingdom","Canada","India","Australia","Germany","France","Singapore","Remote/Global"];
 
 const LS_KEY = "campaign_create_v1";
@@ -89,27 +116,9 @@ export default function CreateCampaignPage() {
     setData((d) => ({ ...d, [key]: (d[key] as string[]).filter((x) => x !== value) }));
   };
 
-  const validate = (s: Step) => {
-    const e: Record<string, string> = {};
-    if (s === 1) {
-      if (!data.name || !data.name.trim()) e.name = "Enter a name";
-    } else if (s === 2) {
-      if (!data.titles.length) e.titles = "Add at least one job title";
-      if (!data.industries.length) e.industries = "Choose at least one industry";
-      if (!data.locations.length) e.locations = "Choose at least one location";
-      if (data.sizeMin < 1 || data.sizeMax < data.sizeMin) e.size = "Check company size range";
-    } else if (s === 3) {
-      if (data.dailyProspectLimit < 5 || data.dailyProspectLimit > 100) e.dailyProspectLimit = "Set between 5-100";
-      if (data.minAiScore < 0 || data.minAiScore > 100) e.minAiScore = "Set 0-100";
-    } else if (s === 4) {
-      if (data.emailDailyLimit < 1) e.emailDailyLimit = "Set a positive limit";
-      if (data.enableFollowups) {
-        if (!data.followupDays.length) e.followupDays = "Add follow-up days";
-        if (data.maxFollowups < 1) e.maxFollowups = "Set max follow-ups";
-      }
-    }
-    setErrors(e);
-    return Object.keys(e).length === 0;
+  const validate = (_s: Step) => {
+    setErrors({});
+    return true;
   };
 
   const breadthScore = useMemo(() => {
@@ -142,11 +151,23 @@ export default function CreateCampaignPage() {
     setStep((s) => Math.max(1, s - 1) as Step);
   };
 
+  const [banner, setBanner] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
   const saveCampaign = async (status: "draft" | "active" | "scheduled") => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
     const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
-    if (!url || !anon) return;
+    setSubmitError(null);
+    setBanner(null);
+    if (!url || !anon) { setSubmitError("Supabase not configured"); return; }
+    setSubmitting(true);
     const s = createClient(url, anon);
+    let createdBy: string | null = null;
+    try {
+      const { data } = await s.auth.getSession();
+      createdBy = data?.session?.user?.id || null;
+    } catch {}
     const payload: any = {
       name: data.name,
       description: data.description || "",
@@ -166,11 +187,17 @@ export default function CreateCampaignPage() {
       max_followups: data.maxFollowups,
       status,
       schedule_start: status === "scheduled" ? data.scheduleStart || null : null,
+      created_by: createdBy,
     };
     const res = await s.from("hunting_campaigns").insert(payload).select("id").single();
-    if (!res.error && res.data?.id) {
+    if (res.error) { setSubmitError(res.error.message || "Failed to save"); setSubmitting(false); return; }
+    if (res.data?.id) {
+      setBanner(status === "draft" ? "Saved as draft" : status === "active" ? "Campaign activated" : "Campaign scheduled");
       localStorage.removeItem(LS_KEY);
       router.push("/dashboard/hunting");
+    } else {
+      setSubmitError("Failed to save");
+      setSubmitting(false);
     }
   };
 
@@ -184,6 +211,8 @@ export default function CreateCampaignPage() {
           </div>
           <div className="text-xs text-zinc-400">Saving {saving ? "…" : ""}</div>
         </div>
+        {banner && <div className="mb-4 rounded-lg border border-green-600/30 bg-green-900/30 p-3 text-green-300 text-sm">{banner}</div>}
+        {submitError && <div className="mb-4 rounded-lg border border-red-600/30 bg-red-900/30 p-3 text-red-300 text-sm">{submitError}</div>}
         <div className="mb-4 h-2 w-full rounded-full bg-zinc-800">
           <div className="h-2 rounded-full bg-blue-600" style={{ width: `${progress}%` }}></div>
         </div>
@@ -224,6 +253,7 @@ export default function CreateCampaignPage() {
 
               <div>
                 <div className="text-sm font-medium text-zinc-300">Industries</div>
+                <div className="mt-1 text-xs text-zinc-400">If search is too broad, it will not be effective. Focus campaigns are better.</div>
                 <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {industryOptions.map((o) => (
                     <label key={o} className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 p-2 text-xs">
@@ -232,7 +262,10 @@ export default function CreateCampaignPage() {
                     </label>
                   ))}
                 </div>
-                {errors.industries && <div className="mt-1 text-xs text-red-400">{errors.industries}</div>}
+                <div className="mt-2 flex gap-2">
+                  <input id="industryInput" placeholder="Add custom industry" className="flex-1 rounded-xl border border-white/20 bg-white/10 p-3 text-sm" />
+                  <button onClick={() => { const el = document.getElementById("industryInput") as HTMLInputElement | null; if (el) { addTag("industries", el.value); el.value = ""; } }} className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm">Add</button>
+                </div>
               </div>
 
               <div>
@@ -255,20 +288,18 @@ export default function CreateCampaignPage() {
 
               <div>
                 <div className="text-sm font-medium text-zinc-300">Company Size</div>
+                <div className="mt-1 text-xs text-zinc-400">If search is too broad, it will not be effective. Focus campaigns are better.</div>
                 <div className="mt-2 grid grid-cols-2 gap-3">
                   <div>
-                    <div className="text-xs text-zinc-300">Min</div>
-                    <input type="range" min={1} max={50000} value={data.sizeMin} onChange={(e) => setData((d) => ({ ...d, sizeMin: Number(e.target.value) }))} className="w-full" />
-                    <div className="mt-1 text-xs text-zinc-400">{data.sizeMin} employees</div>
+                    <div className="text-xs text-zinc-300">Min employees</div>
+                    <input type="number" min={1} value={data.sizeMin} onChange={(e) => setData((d) => ({ ...d, sizeMin: Math.max(1, Number(e.target.value || 1)) }))} className="mt-1 w-full rounded-xl border border-white/20 bg-white/10 p-3 text-sm" />
                   </div>
                   <div>
-                    <div className="text-xs text-zinc-300">Max</div>
-                    <input type="range" min={data.sizeMin} max={50000} value={data.sizeMax} onChange={(e) => setData((d) => ({ ...d, sizeMax: Number(e.target.value) }))} className="w-full" />
-                    <div className="mt-1 text-xs text-zinc-400">{data.sizeMax} employees</div>
+                    <div className="text-xs text-zinc-300">Max employees</div>
+                    <input type="number" min={data.sizeMin} value={data.sizeMax} onChange={(e) => setData((d) => ({ ...d, sizeMax: Math.max(d.sizeMin, Number(e.target.value || d.sizeMin)) }))} className="mt-1 w-full rounded-xl border border-white/20 bg-white/10 p-3 text-sm" />
                   </div>
                 </div>
                 <div className="mt-2 flex justify-between text-xs text-zinc-500"><span>Startup</span><span>SMB</span><span>Mid-Market</span><span>Enterprise</span></div>
-                {errors.size && <div className="mt-1 text-xs text-red-400">{errors.size}</div>}
               </div>
 
               <div>
@@ -406,9 +437,9 @@ export default function CreateCampaignPage() {
             {step < 5 && <button onClick={onNext} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white">Next</button>}
             {step === 5 && (
               <>
-                <button onClick={() => saveCampaign("draft")} className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm">Save as Draft</button>
-                <button onClick={() => saveCampaign("active")} className="rounded-lg bg-green-600 px-4 py-2 text-sm text-white">Activate Campaign</button>
-                <button onClick={() => saveCampaign("scheduled")} className="rounded-lg bg-purple-600 px-4 py-2 text-sm text-white">Schedule Start</button>
+                <button disabled={submitting} onClick={() => saveCampaign("draft")} className="rounded-lg border border-white/20 bg-white/10 px-4 py-2 text-sm disabled:opacity-60">Save as Draft</button>
+                <button disabled={submitting} onClick={() => saveCampaign("active")} className="rounded-lg bg-green-600 px-4 py-2 text-sm text-white disabled:opacity-60">Activate Campaign</button>
+                <button disabled={submitting} onClick={() => saveCampaign("scheduled")} className="rounded-lg bg-purple-600 px-4 py-2 text-sm text-white disabled:opacity-60">Schedule Start</button>
               </>
             )}
           </div>

@@ -1,18 +1,19 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Nunito_Sans } from "next/font/google";
 import Image from "next/image";
 import Link from "next/link";
 import "./globals.css";
 import AuthProvider from "@/lib/auth/auth-context";
 
-const geistSans = Geist({
+const nunitoSans = Nunito_Sans({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  weight: ["300", "400", "600", "700", "800"],
 });
-
-const geistMono = Geist_Mono({
+const nunitoMono = Nunito_Sans({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  weight: ["300", "400", "600", "700", "800"],
 });
 
 export const metadata: Metadata = {
@@ -27,7 +28,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0a0a0f] text-zinc-50`}>
+      <body className={`${nunitoSans.variable} ${nunitoMono.variable} antialiased bg-[#0a0a0f] text-zinc-50`}>
         <div className="min-h-screen flex flex-col">
           <header className="z-20 w-full border-b border-white/10 bg-white/5 backdrop-blur-xl">
             <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">

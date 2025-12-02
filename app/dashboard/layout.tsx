@@ -11,6 +11,7 @@ function Sidebar() {
   const supabase = useMemo(() => createClientComponentClient(), []);
   const { user } = useAuth();
   const { isAdmin } = useAuth();
+  const isDev = process.env.NODE_ENV === "development";
   const [activeCampaigns, setActiveCampaigns] = useState(0);
   useEffect(() => {
     const load = async () => {
@@ -19,14 +20,14 @@ function Sidebar() {
     };
     load();
   }, [supabase]);
-  if (!user) return null;
+  if (!user && !isDev) return null;
   return (
     <aside className="w-full max-w-[240px] rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-xl">
       <div className="space-y-2 text-sm">
         <Link href="/dashboard" className="block rounded-lg bg-white/5 px-3 py-2">Overview</Link>
         <Link href="/dashboard/hunting" className="block rounded-lg bg-white/5 px-3 py-2">🎯 Hunting Campaigns <span className="ml-2 rounded-full bg-blue-600 px-2 py-0.5 text-[10px] text-white">{activeCampaigns}</span></Link>
         <Link href="/prospects" className="block rounded-lg bg-white/5 px-3 py-2">Prospects</Link>
-        {isAdmin && <Link href="/admin" className="block rounded-lg bg-white/5 px-3 py-2">🛡️ Admin</Link>}
+        {(isAdmin || isDev) && <Link href="/admin" className="block rounded-lg bg-white/5 px-3 py-2">🛡️ Admin</Link>}
       </div>
     </aside>
   );

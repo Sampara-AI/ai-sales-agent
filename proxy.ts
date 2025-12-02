@@ -3,6 +3,9 @@ import type { NextRequest } from "next/server";
  
 
 export async function proxy(req: NextRequest) {
+  if (process.env.NODE_ENV === "development") {
+    return NextResponse.next();
+  }
   const res = NextResponse.next();
   const url = req.nextUrl.clone();
   const pathname = url.pathname;
