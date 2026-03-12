@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Nunito_Sans } from "next/font/google";
 import { useRouter } from "next/navigation";
-import { createClient } from "@supabase/supabase-js";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 
 const nunito = Nunito_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "700", "800"] });
 
@@ -156,13 +156,10 @@ export default function CreateCampaignPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const saveCampaign = async (status: "draft" | "active" | "scheduled") => {
-    const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
-    const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
     setSubmitError(null);
     setBanner(null);
-    if (!url || !anon) { setSubmitError("Supabase not configured"); return; }
     setSubmitting(true);
-    const s = createClient(url, anon);
+    const s = createClientComponentClient();
     let createdBy: string | null = null;
     try {
       const { data } = await s.auth.getSession();
@@ -180,18 +177,16 @@ export default function CreateCampaignPage() {
       exclude_companies: data.excludeCompanies,
       daily_prospect_limit: data.dailyProspectLimit,
       min_ai_score: data.minAiScore,
-      email_daily_limit: data.emailDailyLimit,
       send_weekends: data.sendWeekends,
-      enable_followups: data.enableFollowups,
-      followup_days: data.followupDays,
-      max_followups: data.maxFollowups,
       status,
       schedule_start: status === "scheduled" ? data.scheduleStart || null : null,
       created_by: createdBy,
     };
-    const res = await s.from("hunting_campaigns").insert(payload).select("id").single();
-    if (res.error) { setSubmitError(res.error.message || "Failed to save"); setSubmitting(false); return; }
-    if (res.data?.id) {
+    if (!createdBy) { setSubmitError("Please sign in again to save"); setSubmitting(false); return; }
+    const apiRes = await fetch("/api/campaigns/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+    if (!apiRes.ok) { const j = await apiRes.json().catch(() => ({})); setSubmitError(j?.error || "Failed to save"); setSubmitting(false); return; }
+    const j = await apiRes.json();
+    if (j?.id) {
       setBanner(status === "draft" ? "Saved as draft" : status === "active" ? "Campaign activated" : "Campaign scheduled");
       localStorage.removeItem(LS_KEY);
       router.push("/dashboard/hunting");

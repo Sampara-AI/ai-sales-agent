@@ -26,6 +26,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const brandUrl = process.env.NEXT_PUBLIC_BRAND_URL || "https://www.tupleai.co.in";
   return (
     <html lang="en">
       <body className={`${nunitoSans.variable} ${nunitoMono.variable} antialiased bg-[#0a0a0f] text-zinc-50`}>
@@ -50,7 +51,7 @@ export default function RootLayout({
           </main>
           <footer className="mt-12 border-t border-white/10 bg-white/5 py-6 backdrop-blur-xl">
             <div className="mx-auto max-w-7xl px-6 text-xs text-zinc-300">
-              <div>Powered by Tuple AI</div>
+              <div><a href={brandUrl} className="text-zinc-300 underline">Powered by Tuple AI</a></div>
               <div className="mt-1">© {new Date().getFullYear()} Tuple AI. All rights reserved.</div>
             </div>
           </footer>

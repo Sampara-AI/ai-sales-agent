@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createClient } from "@supabase/supabase-js";
 
 type ApolloPerson = {
   id?: string;
@@ -46,6 +47,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const baseUrl = `${proto}://${host}`;
   let runStatus: "success" | "partial" | "error" = "success";
   let runSummary = "";
+  let admin: ReturnType<typeof createClient> | null = null;
 
   try {
     const { data: userData } = await supabase.auth.getUser();
@@ -54,6 +56,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       currentUser = { id: "dev", email: "dev@local.com" };
     }
     if (!currentUser) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    const adminEmail = String(process.env.ADMIN_EMAIL || "").toLowerCase();
     const cRes = await supabase
       .from("hunting_campaigns")
       .select("id,name,status,titles,industries,locations,size_min,size_max,keywords,exclude_companies,daily_prospect_limit,min_ai_score,send_weekends,schedule_start,created_by")
@@ -67,6 +70,9 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     } else {
       const pr = await supabase.from("profiles").select("role").eq("user_id", currentUser.id).single();
       isAdmin = (pr.data as any)?.role === "admin";
+      if (!isAdmin && adminEmail && String(currentUser.email || "").toLowerCase() === adminEmail) {
+        isAdmin = true;
+      }
       if (!isAdmin && c && (c as any).created_by && (c as any).created_by !== currentUser.id) {
         return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
       }
@@ -112,40 +118,53 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const endpoint = apolloUrl || "https://api.apollo.io/v1/mixed_people/search";
 
     let people: ApolloPerson[] = [];
-    if (apolloKey) {
-      const query: Record<string, any> = {
-        api_key: apolloKey,
-        person_titles: titles,
-        organization_locations: locations,
-        organization_industry_tag_ids: industries,
-        organization_num_employees_ranges: [sizeRange],
-        person_seniorities: ["director", "vp", "c_suite"],
-        per_page: perPage,
-        page: 1,
-      };
-      if (keywords.length) query.keywords = keywords.join(", ");
-      try {
-        const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(query) });
-        if (!res.ok) throw new Error(`Apollo ${res.status}`);
-        const json = await res.json();
-        const arr = (json?.people || json?.matches || []) as any[];
-        people = arr.map((p) => ({
-          id: p?.id,
-          first_name: p?.first_name,
-          last_name: p?.last_name,
-          name: p?.name || [p?.first_name, p?.last_name].filter(Boolean).join(" "),
-          title: p?.title,
-          emails: Array.isArray(p?.emails) ? p.emails : (p?.email ? [p.email] : []),
-          email: p?.email,
-          organization: p?.organization || { name: p?.organization_name, industry: p?.industry, employee_count: p?.employee_count },
-          linkedin_url: p?.linkedin_url || null,
-          location: p?.location || null,
-        })) as ApolloPerson[];
-      } catch (e: any) {
-        runStatus = "partial";
+    if (!apolloKey) {
+      return NextResponse.json(
+        { success: false, error: "APOLLO_API_KEY is not configured. Add it to your environment variables to fetch real prospects." },
+        { status: 500 },
+      );
+    }
+
+    const industriesLookLikeIds = industries.every((x) => /^[0-9a-f-]{16,}$/i.test(String(x)));
+    const query: Record<string, any> = {
+      api_key: apolloKey,
+      person_titles: titles,
+      organization_locations: locations,
+      organization_num_employees_ranges: [sizeRange],
+      person_seniorities: ["director", "vp", "c_suite"],
+      per_page: perPage,
+      page: 1,
+    };
+    if (industriesLookLikeIds && industries.length) query.organization_industry_tag_ids = industries;
+    if (keywords.length) query.keywords = keywords.join(", ");
+
+    try {
+      const res = await fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(query) });
+      if (!res.ok) {
+        const bodyText = await res.text().catch(() => "");
+        throw new Error(`Apollo ${res.status}${bodyText ? `: ${bodyText}` : ""}`);
       }
-    } else {
-      runStatus = "partial";
+      const json = await res.json();
+      const arr = (json?.people || json?.matches || []) as any[];
+      people = arr.map((p) => ({
+        id: p?.id,
+        first_name: p?.first_name,
+        last_name: p?.last_name,
+        name: p?.name || [p?.first_name, p?.last_name].filter(Boolean).join(" "),
+        title: p?.title,
+        emails: Array.isArray(p?.emails) ? p.emails : p?.email ? [p.email] : [],
+        email: p?.email,
+        organization: p?.organization || { name: p?.organization_name, industry: p?.industry, employee_count: p?.employee_count },
+        linkedin_url: p?.linkedin_url || null,
+        location: p?.location || null,
+      })) as ApolloPerson[];
+    } catch (e: any) {
+      runStatus = "error";
+      runSummary = String(e?.message || "Apollo request failed");
+      try {
+        await supabase.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
+      } catch {}
+      return NextResponse.json({ success: false, error: runSummary }, { status: 502 });
     }
 
     const existingRes = await supabase
@@ -160,6 +179,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let prospects_added = 0;
     let high_scorers = 0;
     let emails_generated = 0;
+
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+    admin = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
 
     for (const p of people) {
       const name = String(p.name || [p.first_name, p.last_name].filter(Boolean).join(" ")).trim();
@@ -207,17 +230,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         source: `campaign:${id}`,
         campaign_id: id,
       };
-      const insPayloadFinal = isDev ? { ...insPayload } : { ...insPayload, user_id: currentUser.id };
-      const ins = await supabase.from("prospects").insert(insPayloadFinal).select("id").single();
+      const insPayloadFinal = { ...insPayload, user_id: (isDev ? (currentUser.id || null) : currentUser.id) };
+      const insClient = admin || supabase;
+      const ins = await insClient.from("prospects").insert(insPayloadFinal).select("id").single();
       if (ins.error) continue;
       prospects_added += 1;
       if (aiScore != null && aiScore >= minScore) {
         high_scorers += 1;
         try {
-          const gen = await fetch(`${baseUrl}/api/generate-outreach`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, title: p.title || undefined, company, industry: p.organization?.industry || undefined, recent_activity: "", pain_points: "", source: `campaign:${id}` , prospect_id: ins.data?.id }) });
+          const gen = await fetch(`${baseUrl}/api/generate-outreach`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, title: p.title || undefined, company, industry: p.organization?.industry || undefined, recent_activity: "", pain_points: "", source: `campaign:${id}`, prospect_id: ins.data?.id }) });
           if (gen.ok) {
             emails_generated += 1;
-            await supabase.from("prospects").update({ status: "email_ready" }).eq("id", ins.data?.id);
+            await (admin || supabase).from("prospects").update({ status: "email_ready" }).eq("id", ins.data?.id);
           }
         } catch {}
       }
@@ -235,14 +259,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return dt.toISOString();
     })();
 
-    const upd = await supabase
+    const upd = await (admin || supabase)
       .from("hunting_campaigns")
       .update({ found_count: (c.found_count || 0) + prospects_added, last_run_at: nowIso, schedule_start: next })
       .eq("id", id);
     if (upd.error) runStatus = "partial";
 
     runSummary = `prospects_found=${prospects_found}; prospects_added=${prospects_added}; high_scorers=${high_scorers}; emails_generated=${emails_generated}`;
-    await supabase
+    await (admin || supabase)
       .from("hunting_campaign_runs")
       .insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
 
@@ -251,7 +275,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     runStatus = "error";
     runSummary = String(err?.message || "Unknown error");
     try {
-      await supabase.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
+      await (admin || supabase).from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
     } catch {}
     return NextResponse.json({ success: false, error: err?.message || "Hunt failed" }, { status: 500 });
   }

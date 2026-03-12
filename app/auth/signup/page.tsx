@@ -16,18 +16,23 @@ function SignupForm() {
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
   const onSubmit = async () => {
     setError(null);
+    setSuccess(null);
     setLoading(true);
     if (password !== confirm) { setLoading(false); setError("Passwords do not match"); return; }
     const res = await signUp(email, password, name);
     setLoading(false);
-    router.replace("/onboarding");
+    if (res.error) { setError(res.error); return; }
+    setSuccess("Account created. Check your email to verify, then sign in.");
+    router.replace("/auth/login");
   };
   return (
     <div className="mx-auto w-full max-w-md rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur-xl">
       <div className="text-lg font-semibold">Create Account</div>
       {error && <div className="mt-3 rounded border border-red-600/30 bg-red-900/30 p-2 text-sm text-red-300">{error}</div>}
+      {success && <div className="mt-3 rounded border border-green-600/30 bg-green-900/30 p-2 text-sm text-green-300">{success}</div>}
       <div className="mt-4 space-y-3">
         <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Full Name" className="w-full rounded-xl border border-white/20 bg-white/10 p-3 text-sm" />
         <input value={company} onChange={(e) => setCompany(e.target.value)} placeholder="Company (optional)" className="w-full rounded-xl border border-white/20 bg-white/10 p-3 text-sm" />

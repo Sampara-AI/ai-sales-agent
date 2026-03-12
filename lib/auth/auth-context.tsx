@@ -39,45 +39,58 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
-  if (process.env.NODE_ENV === "development") {
-    const devUser = { id: "dev", email: "dev@local.com" } as any;
-    const devProfile: Profile = { id: "dev", email: "dev@local.com", full_name: "Developer", company: "Local", role: "admin", subscription_status: "free", onboarding_completed: true };
-    const mock: AuthContextType = {
-      user: devUser,
-      profile: devProfile,
-      loading: false,
-      isAdmin: true,
-      signIn: async () => ({}),
-      signUp: async () => ({}),
-      signOut: async () => {},
-    };
-    return <Ctx.Provider value={mock}>{children}</Ctx.Provider>;
-  }
-
   useEffect(() => {
     let mounted = true;
     const init = async () => {
       setLoading(true);
-      const { data } = await supabase.auth.getSession();
-      const u = data?.session?.user || null;
-      if (!mounted) return;
-      setUser(u);
-      if (u) {
-        const pr = await supabase.from("profiles").select("id,email,full_name,company,role,subscription_status,onboarding_completed").eq("user_id", u.id).single();
-        setProfile((pr.data as any) || null);
-      } else {
+      try {
+        const { data } = await supabase.auth.getSession();
+        const u = data?.session?.user || null;
+        if (!mounted) return;
+        setUser(u);
+        if (u) {
+          try {
+            const pr = await supabase
+              .from("profiles")
+              .select("id,email,full_name,company,role,subscription_status,onboarding_completed")
+              .eq("user_id", u.id)
+              .single();
+            setProfile((pr.data as unknown as Profile | null) || null);
+          } catch {
+            setProfile(null);
+          }
+        } else {
+          setProfile(null);
+        }
+      } catch {
+        if (!mounted) return;
+        setUser(null);
         setProfile(null);
+      } finally {
+        if (mounted) setLoading(false);
       }
-      setLoading(false);
     };
     init();
     const { data: sub } = supabase.auth.onAuthStateChange(async (_evt, sess) => {
-      const u = sess?.user || null;
-      setUser(u);
-      if (u) {
-        const pr = await supabase.from("profiles").select("id,email,full_name,company,role,subscription_status,onboarding_completed").eq("user_id", u.id).single();
-        setProfile((pr.data as any) || null);
-      } else {
+      try {
+        const u = sess?.user || null;
+        setUser(u);
+        if (u) {
+          try {
+            const pr = await supabase
+              .from("profiles")
+              .select("id,email,full_name,company,role,subscription_status,onboarding_completed")
+              .eq("user_id", u.id)
+              .single();
+            setProfile((pr.data as unknown as Profile | null) || null);
+          } catch {
+            setProfile(null);
+          }
+        } else {
+          setProfile(null);
+        }
+      } catch {
+        setUser(null);
         setProfile(null);
       }
     });
@@ -89,11 +102,13 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     return error ? { error: error.message } : {};
   };
   const signUp = async (email: string, password: string, fullName: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName } } });
+    const redirectTo = (typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_SITE_URL) || undefined;
+    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName }, emailRedirectTo: redirectTo } });
     if (error) return { error: error.message };
     const u = data.user;
     if (u) {
-      await supabase.from("profiles").upsert({ user_id: u.id, email, full_name: fullName, company: null, role: "user", subscription_status: "free", onboarding_completed: false }, { onConflict: "user_id" });
+      const isAdminEmail = String(email).toLowerCase() === "sri@tupleai.co.in";
+      await supabase.from("profiles").upsert({ user_id: u.id, email, full_name: fullName, company: null, role: isAdminEmail ? "admin" : "user", subscription_status: "free", onboarding_completed: false }, { onConflict: "user_id" });
     }
     return {};
   };

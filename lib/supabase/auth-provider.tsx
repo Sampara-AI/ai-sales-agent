@@ -79,11 +79,13 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     return {};
   };
   const signUp = async (name: string, email: string, password: string, company?: string) => {
-    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { name, company } } });
+    const redirectTo = (typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_SITE_URL) || undefined;
+    const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { name, company }, emailRedirectTo: redirectTo } });
     if (error) return { error: error.message };
     const u = data.user;
     if (u) {
-      await supabase.from("profiles").upsert({ user_id: u.id, name, company, role: "user", onboarding_completed: false }, { onConflict: "user_id" });
+      const isAdminEmail = String(email).toLowerCase() === "sri@tupleai.co.in";
+      await supabase.from("profiles").upsert({ user_id: u.id, name, company, role: isAdminEmail ? "admin" : "user", onboarding_completed: false }, { onConflict: "user_id" });
     }
     return {};
   };
@@ -94,7 +96,7 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     router.replace("/");
   };
 
-  const isAdmin = !!profile && (profile as any)?.role === "admin";
+  const isAdmin = !!profile && ((profile as any)?.role === "admin" || (user?.email && String(user.email).toLowerCase() === String(process.env.NEXT_PUBLIC_ADMIN_EMAIL || "").toLowerCase()));
 
   return (
     <Ctx.Provider value={{ user, profile, loading, signIn, signUp, signOut, isAdmin }}>{children}</Ctx.Provider>

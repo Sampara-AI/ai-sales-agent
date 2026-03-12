@@ -22,7 +22,15 @@ export async function POST(req: Request) {
 
     const body = (await req.json()) as SendBody;
     const emailRegex = /[^@\s]+@[^@\s]+\.[^@\s]+/;
-    if (!body?.prospect_id || !body?.to_email || !body?.subject || !body?.body || !body?.from_name || !body?.from_email) return NextResponse.json({ success: false, error: "Invalid payload" }, { status: 400 });
+    const defaultFromName = process.env.DEFAULT_FROM_NAME || "Tuple AI";
+    const defaultFromEmail = process.env.DEFAULT_FROM_EMAIL || "founder@tuple.ai";
+    const footerLinkText = process.env.EMAIL_FOOTER_LINK_TEXT || "Book a 15-minute call";
+    const footerLinkUrl = process.env.EMAIL_FOOTER_LINK_URL || "https://cal.com/tuple-ai/intro";
+    const unsubscribeUrl = process.env.EMAIL_UNSUBSCRIBE_URL || "https://tuple.ai/unsubscribe";
+    const brandUrl = process.env.EMAIL_BRAND_URL || process.env.NEXT_PUBLIC_BRAND_URL || "https://www.tupleai.co.in";
+    if (!body?.prospect_id || !body?.to_email || !body?.subject || !body?.body) return NextResponse.json({ success: false, error: "Invalid payload" }, { status: 400 });
+    body.from_name = body.from_name || defaultFromName;
+    body.from_email = body.from_email || defaultFromEmail;
     if (!emailRegex.test(body.to_email) || !emailRegex.test(body.from_email)) return NextResponse.json({ success: false, error: "Invalid email" }, { status: 400 });
 
     const supabase = createClient(supabaseUrl, supabaseAnonKey);
@@ -56,17 +64,17 @@ export async function POST(req: Request) {
               <div>${body.from_name}</div>
               <div>AI Architect | 6 Patents in Enterprise AI</div>
               <div>Tuple AI</div>
-              <div style="margin-top:8px"><a href="https://cal.com/tuple-ai/intro" style="color:#60a5fa;text-decoration:none">Book a 15-minute call</a></div>
+              <div style="margin-top:8px"><a href="${footerLinkUrl}" style="color:#60a5fa;text-decoration:none">${footerLinkText}</a></div>
             </div>
             <div style="margin-top:24px;font-size:12px;color:#9ca3af">
-              <div><a href="https://tuple.ai/unsubscribe" style="color:#9ca3af;text-decoration:underline">Unsubscribe</a></div>
-              <div style="margin-top:8px">Powered by Tuple AI</div>
+              <div><a href="${unsubscribeUrl}" style="color:#9ca3af;text-decoration:underline">Unsubscribe</a></div>
+              <div style="margin-top:8px"><a href="${brandUrl}" style="color:#9ca3af;text-decoration:underline">Powered by Tuple AI</a></div>
             </div>
           </div>
         </div>
       </div>`;
 
-    const text = `${body.body}\n\nBest regards,\n${body.from_name}\nAI Architect | 6 Patents in Enterprise AI\nTuple AI\n\nBook a 15-minute call: https://cal.com/tuple-ai/intro\nUnsubscribe: https://tuple.ai/unsubscribe`;
+    const text = `${body.body}\n\nBest regards,\n${body.from_name}\nAI Architect | 6 Patents in Enterprise AI\nTuple AI\n\n${footerLinkText}: ${footerLinkUrl}\nUnsubscribe: ${unsubscribeUrl}\nPowered by Tuple AI: ${brandUrl}`;
 
     const resend = new Resend(apiKey);
     const sendRes = await resend.emails.send({
