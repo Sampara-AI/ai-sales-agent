@@ -100,11 +100,11 @@ export default function InboxPage() {
   const esc = latestInbound?.escalated;
 
   return (
-    <div className="min-h-[calc(100vh-140px)] rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+    <div className="min-h-[calc(100vh-140px)] rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <div className="text-lg font-semibold text-slate-900">Inbox</div>
-          <div className="mt-1 text-sm text-slate-500">Grounded, product-aware reply drafts with intent + escalation.</div>
+          <div className="text-xl font-semibold text-slate-900">Inbox</div>
+          <div className="mt-1 text-sm text-slate-500">Grounded, product-aware reply handling: intent classification, draft response, escalation signals.</div>
         </div>
         <button onClick={load} disabled={loading} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60">Refresh</button>
       </div>
@@ -112,7 +112,7 @@ export default function InboxPage() {
       {banner && <div className={`mt-4 rounded-lg border p-3 text-sm ${esc ? "border-amber-200 bg-amber-50 text-amber-900" : "border-green-200 bg-green-50 text-green-800"}`}>{banner}</div>}
       {error && <div className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}
 
-      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[320px_1fr]">
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[340px_1fr]">
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
           <div className="text-sm font-semibold text-slate-800">Threads</div>
           <div className="mt-3 space-y-2">

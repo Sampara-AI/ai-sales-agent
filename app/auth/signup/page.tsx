@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Nunito_Sans } from "next/font/google";
 import { useRouter } from "next/navigation";
 import AuthProvider, { useAuth } from "@/lib/auth/auth-context";
@@ -9,6 +9,7 @@ const nunito = Nunito_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "
 function SignupForm() {
   const router = useRouter();
   const { signUp } = useAuth();
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const disableSignup = String(process.env.NEXT_PUBLIC_DISABLE_SIGNUP || "").toLowerCase() === "true";
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
@@ -18,6 +19,9 @@ function SignupForm() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  useEffect(() => {
+    if (demoMode) router.replace("/auth/login");
+  }, [demoMode, router]);
   const onSubmit = async () => {
     setError(null);
     setSuccess(null);

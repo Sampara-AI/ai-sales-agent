@@ -267,54 +267,54 @@ function AdminContent() {
   };
 
   return (
-    <div className={`${nunito.className} min-h-screen bg-[#0a0a0f] text-zinc-50`}>
+    <div className={`${nunito.className} min-h-screen bg-slate-50 text-slate-900`}>
       <div className="mx-auto max-w-7xl px-6 py-8">
-        {error && <div className="mb-4 rounded-lg border border-red-600/30 bg-red-900/30 p-3 text-red-300 text-sm">{error}</div>}
-        <div className="mb-6 text-xl font-bold">Admin Dashboard</div>
+        {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-red-800 text-sm">{error}</div>}
+        <div className="mb-6 text-2xl font-semibold text-slate-900">Admin</div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4"><div className="text-xs text-zinc-400">Total Users</div><div className="mt-1 text-2xl font-bold">{users.length}</div></div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4"><div className="text-xs text-zinc-400">Active Campaigns</div><div className="mt-1 text-2xl font-bold">{activeCampaigns}</div></div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4"><div className="text-xs text-zinc-400">Total Prospects</div><div className="mt-1 text-2xl font-bold">{totalProspects}</div></div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4"><div className="text-xs text-zinc-400">Emails Sent Today</div><div className="mt-1 text-2xl font-bold">{emailsSentToday}</div></div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4"><div className="text-xs text-zinc-400">System Health</div><div className="mt-1 text-sm">{health}</div></div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs text-slate-500">Total Users</div><div className="mt-1 text-2xl font-semibold">{users.length}</div></div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs text-slate-500">Active Campaigns</div><div className="mt-1 text-2xl font-semibold">{activeCampaigns}</div></div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs text-slate-500">Total Prospects</div><div className="mt-1 text-2xl font-semibold">{totalProspects}</div></div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs text-slate-500">Emails Sent Today</div><div className="mt-1 text-2xl font-semibold">{emailsSentToday}</div></div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs text-slate-500">System Health</div><div className="mt-1 text-sm text-slate-700">{health}</div></div>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-white/20 bg-white/10 p-4">
+        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="mb-3 flex items-center justify-between">
-            <div className="text-sm font-semibold">Users</div>
+            <div className="text-sm font-semibold text-slate-800">Users</div>
             <div className="flex items-center gap-2 text-xs">
-              <button onClick={() => setFilterRole("all")} className={`rounded px-2 py-1 ${filterRole==='all'?"bg-blue-600 text-white":"bg-white/5"}`}>All</button>
-              <button onClick={() => setFilterRole("free")} className={`rounded px-2 py-1 ${filterRole==='free'?"bg-blue-600 text-white":"bg_white/5"}`}>Free</button>
-              <button onClick={() => setFilterRole("paid")} className={`rounded px-2 py-1 ${filterRole==='paid'?"bg-blue-600 text-white":"bg_white/5"}`}>Paid</button>
-              <button onClick={() => setFilterRole("admin")} className={`rounded px-2 py-1 ${filterRole==='admin'?"bg-blue-600 text-white":"bg_white/5"}`}>Admin</button>
+              <button onClick={() => setFilterRole("all")} className={`rounded px-2 py-1 ${filterRole === "all" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}>All</button>
+              <button onClick={() => setFilterRole("free")} className={`rounded px-2 py-1 ${filterRole === "free" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}>Free</button>
+              <button onClick={() => setFilterRole("paid")} className={`rounded px-2 py-1 ${filterRole === "paid" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}>Paid</button>
+              <button onClick={() => setFilterRole("admin")} className={`rounded px-2 py-1 ${filterRole === "admin" ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-700"}`}>Admin</button>
             </div>
           </div>
-          {inviteBanner && <div className="mb-3 rounded-lg border border-green-600/30 bg-green-900/30 p-3 text-green-300 text-sm">{inviteBanner}</div>}
+          {inviteBanner && <div className="mb-3 rounded-lg border border-green-200 bg-green-50 p-3 text-green-800 text-sm">{inviteBanner}</div>}
           <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-5">
-            <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="User email" className="rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm" />
-            <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Full name (optional)" className="rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm" />
-            <input value={inviteCompany} onChange={(e) => setInviteCompany(e.target.value)} placeholder="Company (optional)" className="rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm" />
-            <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value === "admin" ? "admin" : "user")} className="rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm">
+            <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="User email" className="rounded-lg border border-slate-200 bg-white p-3 text-sm" />
+            <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Full name (optional)" className="rounded-lg border border-slate-200 bg-white p-3 text-sm" />
+            <input value={inviteCompany} onChange={(e) => setInviteCompany(e.target.value)} placeholder="Company (optional)" className="rounded-lg border border-slate-200 bg-white p-3 text-sm" />
+            <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value === "admin" ? "admin" : "user")} className="rounded-lg border border-slate-200 bg-white p-3 text-sm">
               <option value="user">User</option>
               <option value="admin">Admin</option>
             </select>
-            <button onClick={inviteUser} disabled={inviteBusy} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-60">{inviteBusy ? "Inviting..." : "Invite User"}</button>
+            <button onClick={inviteUser} disabled={inviteBusy} className="rounded-lg bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-60">{inviteBusy ? "Inviting..." : "Invite User"}</button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="text-left text-zinc-300"><th className="p-2">Email</th><th className="p-2">Name</th><th className="p-2">Company</th><th className="p-2">Role</th><th className="p-2">Signup Date</th><th className="p-2">Status</th><th className="p-2">Actions</th></tr>
+                <tr className="text-left text-slate-600"><th className="p-2">Email</th><th className="p-2">Name</th><th className="p-2">Company</th><th className="p-2">Role</th><th className="p-2">Signup Date</th><th className="p-2">Status</th><th className="p-2">Actions</th></tr>
               </thead>
               <tbody>
                 {filteredUsers.map((u) => (
-                  <tr key={u.id} className="border-t border-white/10">
+                  <tr key={u.id} className="border-t border-slate-100">
                     <td className="p-2">{u.email || "—"}</td>
                     <td className="p-2">{u.name || "—"}</td>
                     <td className="p-2">{u.company || "—"}</td>
                     <td className="p-2">{u.role || "user"}</td>
                     <td className="p-2">{u.created_at ? new Date(u.created_at).toLocaleDateString() : "—"}</td>
                     <td className="p-2">Active</td>
-                    <td className="p-2"><div className="flex items-center gap-2"><button className="rounded bg-zinc-800 px-2 py-1 text-xs">View Details</button><button onClick={() => makeAdmin(u.user_id)} className="rounded bg-zinc-800 px-2 py-1 text-xs">Make Admin</button><button onClick={() => suspendUser(u.user_id)} className="rounded bg-zinc-800 px-2 py-1 text-xs">Suspend</button></div></td>
+                    <td className="p-2"><div className="flex items-center gap-2"><button className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">View Details</button><button onClick={() => makeAdmin(u.user_id)} className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">Make Admin</button><button onClick={() => suspendUser(u.user_id)} className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">Suspend</button></div></td>
                   </tr>
                 ))}
               </tbody>
@@ -323,87 +323,87 @@ function AdminContent() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-3">
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-            <div className="mb-3 text-sm font-semibold">Signups Over Time</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 text-sm font-semibold text-slate-800">Signups</div>
             <div className="h-48">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={signupsSeries}><XAxis dataKey="date" stroke="#9ca3af" tick={{ fontSize: 12 }} /><YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} /><Tooltip /><Line type="monotone" dataKey="count" stroke="#60a5fa" strokeWidth={2} dot={false} /></LineChart>
+                <LineChart data={signupsSeries}><XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 12 }} /><YAxis stroke="#64748b" tick={{ fontSize: 12 }} /><Tooltip /><Line type="monotone" dataKey="count" stroke="#334155" strokeWidth={2} dot={false} /></LineChart>
               </ResponsiveContainer>
             </div>
           </div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-            <div className="mb-3 text-sm font-semibold">Email Send Rate</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 text-sm font-semibold text-slate-800">Send Volume</div>
             <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%"><LineChart data={emailRateSeries}><XAxis dataKey="date" stroke="#9ca3af" tick={{ fontSize: 12 }} /><YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} /><Tooltip /><Line type="monotone" dataKey="rate" stroke="#a78bfa" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer>
+              <ResponsiveContainer width="100%" height="100%"><LineChart data={emailRateSeries}><XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 12 }} /><YAxis stroke="#64748b" tick={{ fontSize: 12 }} /><Tooltip /><Line type="monotone" dataKey="rate" stroke="#334155" strokeWidth={2} dot={false} /></LineChart></ResponsiveContainer>
             </div>
           </div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-            <div className="mb-3 text-sm font-semibold">API Usage</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 text-sm font-semibold text-slate-800">API Usage</div>
             <div className="h-48">
-              <ResponsiveContainer width="100%" height="100%"><BarChart data={apiUsageBars}><XAxis dataKey="name" stroke="#9ca3af" tick={{ fontSize: 12 }} /><YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} /><Tooltip /><Bar dataKey="value" fill="#60a5fa" /></BarChart></ResponsiveContainer>
+              <ResponsiveContainer width="100%" height="100%"><BarChart data={apiUsageBars}><XAxis dataKey="name" stroke="#64748b" tick={{ fontSize: 12 }} /><YAxis stroke="#64748b" tick={{ fontSize: 12 }} /><Tooltip /><Bar dataKey="value" fill="#334155" /></BarChart></ResponsiveContainer>
             </div>
           </div>
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-            <div className="mb-3 text-sm font-semibold">Recent Activity</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 text-sm font-semibold text-slate-800">Recent Activity</div>
             <div className="space-y-2">
-              {runs.length === 0 ? (<div className="rounded border border_white/10 bg_white/5 p-3 text-sm">No activity yet</div>) : runs.map((r) => (<div key={r.id} className="flex items-start gap-3"><div className={`mt-1 h-2 w-2 rounded-full ${r.run_type === "hunt" ? "bg-blue-500" : r.run_type === "email" ? "bg-purple-500" : "bg-amber-500"}`}></div><div className="flex-1 rounded-xl border border-white/10 bg-white/5 p-3"><div className="text-xs text-zinc-400">{new Date(r.created_at).toLocaleString()}</div><div className="text-sm">{r.run_type} • {r.result_summary || ""}</div></div></div>))}
+              {runs.length === 0 ? (<div className="rounded border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">No activity yet</div>) : runs.map((r) => (<div key={r.id} className="flex items-start gap-3"><div className={`mt-1 h-2 w-2 rounded-full ${r.run_type === "hunt" ? "bg-sky-500" : r.run_type === "email" ? "bg-indigo-500" : "bg-amber-500"}`}></div><div className="flex-1 rounded-xl border border-slate-200 bg-slate-50 p-3"><div className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString()}</div><div className="text-sm text-slate-800">{r.run_type} • {r.result_summary || ""}</div></div></div>))}
             </div>
           </div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4">
-          <div className="mb-3 text-sm font-semibold">System Controls</div>
-            <div className="flex flex-wrap items-center gap-2"><button onClick={pauseAllCampaigns} className="rounded bg-zinc-800 px-3 py-2 text-sm">Pause All Campaigns</button><button onClick={runManualHuntAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Manual Hunt</button><button onClick={sendEmailsAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Send Emails Now</button><button onClick={runFollowupsAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Followups</button><button onClick={runAutoHuntNow} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Auto-Hunt Now</button><button onClick={exportAllData} className="rounded bg-zinc-800 px-3 py-2 text-sm">Export All Data</button></div>
-            <div className="mt-3 text-xs text-zinc-400">Use the hunting dashboard to view error logs.</div>
-            <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-3">
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 text-sm font-semibold text-slate-800">System Controls</div>
+            <div className="flex flex-wrap items-center gap-2"><button onClick={pauseAllCampaigns} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Pause All Campaigns</button><button onClick={runManualHuntAll} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Run Manual Hunt</button><button onClick={sendEmailsAll} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Send Emails Now</button><button onClick={runFollowupsAll} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Run Followups</button><button onClick={runAutoHuntNow} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Run Auto-Hunt Now</button><button onClick={exportAllData} className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Export All Data</button></div>
+            <div className="mt-3 text-xs text-slate-500">Use the hunting dashboard to view error logs.</div>
+            <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold">Job Queue</div>
-                <button onClick={retryAllDead} disabled={queueBusy || !deadJobs.length} className="rounded bg-zinc-800 px-2 py-1 text-xs disabled:opacity-60">Retry all dead</button>
+                <div className="text-sm font-semibold text-slate-800">Job Queue</div>
+                <button onClick={retryAllDead} disabled={queueBusy || !deadJobs.length} className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60">Retry all dead</button>
               </div>
-              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-300 sm:grid-cols-4">
-                <div className="rounded border border-white/10 bg-zinc-900/40 p-2">Queued: {queueCounts?.queued ?? "—"}</div>
-                <div className="rounded border border-white/10 bg-zinc-900/40 p-2">Running: {queueCounts?.running ?? "—"}</div>
-                <div className="rounded border border-white/10 bg-zinc-900/40 p-2">Succeeded: {queueCounts?.succeeded ?? "—"}</div>
-                <div className="rounded border border-white/10 bg-zinc-900/40 p-2">Dead: {queueCounts?.dead ?? "—"}</div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-700 sm:grid-cols-4">
+                <div className="rounded border border-slate-200 bg-white p-2">Queued: {queueCounts?.queued ?? "—"}</div>
+                <div className="rounded border border-slate-200 bg-white p-2">Running: {queueCounts?.running ?? "—"}</div>
+                <div className="rounded border border-slate-200 bg-white p-2">Succeeded: {queueCounts?.succeeded ?? "—"}</div>
+                <div className="rounded border border-slate-200 bg-white p-2">Dead: {queueCounts?.dead ?? "—"}</div>
               </div>
               <div className="mt-3 space-y-2">
                 {deadJobs.length === 0 ? (
-                  <div className="text-xs text-zinc-400">No dead-letter jobs</div>
+                  <div className="text-xs text-slate-500">No dead-letter jobs</div>
                 ) : (
                   deadJobs.slice(0, 10).map((j) => (
-                    <div key={j.id} className="flex items-start justify-between gap-3 rounded border border-white/10 bg-zinc-900/30 p-2">
+                    <div key={j.id} className="flex items-start justify-between gap-3 rounded border border-slate-200 bg-white p-2">
                       <div className="min-w-0">
-                        <div className="text-xs text-zinc-200">{j.type} • attempts {j.attempts}/{j.max_attempts}</div>
-                        <div className="mt-1 truncate text-[11px] text-zinc-400">{j.last_error || "—"}</div>
+                        <div className="text-xs text-slate-800">{j.type} • attempts {j.attempts}/{j.max_attempts}</div>
+                        <div className="mt-1 truncate text-[11px] text-slate-500">{j.last_error || "—"}</div>
                       </div>
-                      <button onClick={() => retryDead([j.id])} disabled={queueBusy} className="shrink-0 rounded bg-zinc-800 px-2 py-1 text-xs disabled:opacity-60">Retry</button>
+                      <button onClick={() => retryDead([j.id])} disabled={queueBusy} className="shrink-0 rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60">Retry</button>
                     </div>
                   ))
                 )}
               </div>
             </div>
 
-            <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-3">
-              <div className="text-sm font-semibold">Knowledge Base (RAG)</div>
-              <div className="mt-2 text-xs text-zinc-400">Upload product spec sheets, FAQs, and offering docs to ground inbound reply handling.</div>
-              {knowledgeBanner && <div className="mt-3 rounded border border-white/10 bg-zinc-900/40 p-2 text-xs text-zinc-200">{knowledgeBanner}</div>}
+            <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="text-sm font-semibold text-slate-800">Knowledge Base (RAG)</div>
+              <div className="mt-2 text-xs text-slate-500">Upload product spec sheets, FAQs, and offering docs to ground inbound reply handling.</div>
+              {knowledgeBanner && <div className="mt-3 rounded border border-slate-200 bg-white p-2 text-xs text-slate-800">{knowledgeBanner}</div>}
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <input type="file" accept=".pdf,.txt,.md,text/plain,application/pdf" onChange={(e) => setKnowledgeFile(e.currentTarget.files?.[0] || null)} className="rounded border border-white/10 bg-zinc-800 p-2 text-xs" />
-                <input value={knowledgeSource} onChange={(e) => setKnowledgeSource(e.target.value)} placeholder="Source label (optional)" className="rounded border border-white/10 bg-zinc-800 p-2 text-xs" />
-                <button onClick={uploadKnowledge} disabled={knowledgeBusy || !knowledgeFile} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-60">{knowledgeBusy ? "Indexing..." : "Upload & Index"}</button>
+                <input type="file" accept=".pdf,.txt,.md,text/plain,application/pdf" onChange={(e) => setKnowledgeFile(e.currentTarget.files?.[0] || null)} className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-700" />
+                <input value={knowledgeSource} onChange={(e) => setKnowledgeSource(e.target.value)} placeholder="Source label (optional)" className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-700" />
+                <button onClick={uploadKnowledge} disabled={knowledgeBusy || !knowledgeFile} className="rounded bg-slate-900 px-3 py-2 text-xs text-white disabled:opacity-60">{knowledgeBusy ? "Indexing..." : "Upload & Index"}</button>
               </div>
               <div className="mt-3 space-y-2">
                 {knowledgeDocs.length === 0 ? (
-                  <div className="text-xs text-zinc-400">No indexed documents yet</div>
+                  <div className="text-xs text-slate-500">No indexed documents yet</div>
                 ) : (
                   knowledgeDocs.slice(0, 8).map((d) => (
-                    <div key={d.id} className="flex items-center justify-between gap-3 rounded border border-white/10 bg-zinc-900/30 p-2">
+                    <div key={d.id} className="flex items-center justify-between gap-3 rounded border border-slate-200 bg-white p-2">
                       <div className="min-w-0">
-                        <div className="truncate text-xs text-zinc-200">{d.name}</div>
-                        <div className="mt-1 truncate text-[11px] text-zinc-400">{d.source || d.content_type || "—"} • {new Date(d.created_at).toLocaleString()}</div>
+                        <div className="truncate text-xs text-slate-800">{d.name}</div>
+                        <div className="mt-1 truncate text-[11px] text-slate-500">{d.source || d.content_type || "—"} • {new Date(d.created_at).toLocaleString()}</div>
                       </div>
-                      <div className="shrink-0 text-[11px] text-zinc-400">{d.status || "ready"}</div>
+                      <div className="shrink-0 text-[11px] text-slate-500">{d.status || "ready"}</div>
                     </div>
                   ))
                 )}
@@ -412,10 +412,10 @@ function AdminContent() {
           </div>
         </div>
 
-        <div className="mt-8 rounded-2xl border border-white/20 bg-white/10 p-4">
-          <div className="mb-3 text-sm font-semibold">Setup Requests</div>
+        <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="mb-3 text-sm font-semibold text-slate-800">Setup Requests</div>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm"><thead><tr className="text-left text-zinc-300"><th className="p-2">Email</th><th className="p-2">Company</th><th className="p-2">Status</th><th className="p-2">Actions</th></tr></thead><tbody>{setupRequests.map((s) => (<tr key={s.id} className="border-t border-white/10"><td className="p-2">{s.email || "—"}</td><td className="p-2">{s.company || "—"}</td><td className="p-2">{s.status || "pending"}</td><td className="p-2"><div className="flex items-center gap-2"><button onClick={() => markSetupContacted(s.id)} className="rounded bg-zinc-800 px-2 py-1 text-xs">Mark as Contacted</button><button className="rounded bg-zinc-800 px-2 py-1 text-xs">Schedule Call</button></div></td></tr>))}</tbody></table>
+            <table className="w-full text-sm"><thead><tr className="text-left text-slate-600"><th className="p-2">Email</th><th className="p-2">Company</th><th className="p-2">Status</th><th className="p-2">Actions</th></tr></thead><tbody>{setupRequests.map((s) => (<tr key={s.id} className="border-t border-slate-100"><td className="p-2">{s.email || "—"}</td><td className="p-2">{s.company || "—"}</td><td className="p-2">{s.status || "pending"}</td><td className="p-2"><div className="flex items-center gap-2"><button onClick={() => markSetupContacted(s.id)} className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">Mark as Contacted</button><button className="rounded border border-slate-200 bg-white px-2 py-1 text-xs text-slate-700 hover:bg-slate-50">Schedule Call</button></div></td></tr>))}</tbody></table>
           </div>
         </div>
       </div>
