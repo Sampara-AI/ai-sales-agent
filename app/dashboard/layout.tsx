@@ -22,13 +22,13 @@ function Sidebar() {
   }, [supabase]);
   if (!user && !isDev) return null;
   return (
-    <aside className="w-full max-w-[240px] rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-xl">
+    <aside className="w-full max-w-[240px] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="space-y-2 text-sm">
-        <Link href="/dashboard" className="block rounded-lg bg-white/5 px-3 py-2">Overview</Link>
-        <Link href="/dashboard/hunting" className="block rounded-lg bg-white/5 px-3 py-2">🎯 Hunting Campaigns <span className="ml-2 rounded-full bg-blue-600 px-2 py-0.5 text-[10px] text-white">{activeCampaigns}</span></Link>
-        <Link href="/dashboard/inbox" className="block rounded-lg bg-white/5 px-3 py-2">Inbox</Link>
-        <Link href="/prospects" className="block rounded-lg bg-white/5 px-3 py-2">Prospects</Link>
-        {(isAdmin || isDev) && <Link href="/admin" className="block rounded-lg bg-white/5 px-3 py-2">🛡️ Admin</Link>}
+        <Link href="/dashboard" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">Overview</Link>
+        <Link href="/dashboard/hunting" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">Hunting Campaigns <span className="ml-2 rounded-full bg-slate-900 px-2 py-0.5 text-[10px] text-white">{activeCampaigns}</span></Link>
+        <Link href="/dashboard/inbox" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">Inbox</Link>
+        <Link href="/prospects" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">Prospects</Link>
+        {(isAdmin || isDev) && <Link href="/admin" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">Admin</Link>}
       </div>
     </aside>
   );
@@ -36,12 +36,12 @@ function Sidebar() {
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className={`${nunito.className} min-h-screen bg-[#0a0a0f] text-zinc-50`}>
+    <div className={`${nunito.className} min-h-screen bg-slate-50 text-slate-900`}>
       <div className="mx-auto max-w-7xl px-6 py-6">
         <AuthProvider>
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-[240px_1fr]">
             <Sidebar />
-            <div className="rounded-2xl border border-white/20 bg-white/5 p-4 backdrop-blur-xl">{children}</div>
+            <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">{children}</div>
           </div>
         </AuthProvider>
       </div>

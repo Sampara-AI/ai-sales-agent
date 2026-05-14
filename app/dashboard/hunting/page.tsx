@@ -132,40 +132,40 @@ export default function HuntingDashboardPage() {
   };
 
   return (
-    <div className={`${nunito.className} min-h-screen bg-[#0a0a0f] text-zinc-50`}> 
+    <div className={`${nunito.className} min-h-screen bg-slate-50 text-slate-900`}> 
       <div className="mx-auto max-w-7xl px-6 py-8">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-xl">
-            <div className="text-xs text-zinc-400">Active Campaigns</div>
-            <div className="mt-1 text-2xl font-bold">{stats.active}</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-xs text-slate-500">Active Campaigns</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.active}</div>
           </div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-xl">
-            <div className="text-xs text-zinc-400">Emails Today</div>
-            <div className="mt-1 text-2xl font-bold">{stats.emailsToday} / {stats.dailyLimit}</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-xs text-slate-500">Emails Today</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.emailsToday} / {stats.dailyLimit}</div>
           </div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-xl">
-            <div className="text-xs text-zinc-400">Meetings</div>
-            <div className="mt-1 text-2xl font-bold">{stats.meetings}</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-xs text-slate-500">Meetings</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.meetings}</div>
           </div>
-          <div className="rounded-2xl border border-white/20 bg-white/10 p-4 backdrop-blur-xl">
-            <div className="text-xs text-zinc-400">Replies</div>
-            <div className="mt-1 text-2xl font-bold">{stats.replies}</div>
+          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="text-xs text-slate-500">Replies</div>
+            <div className="mt-1 text-2xl font-semibold">{stats.replies}</div>
           </div>
         </div>
 
         {huntProgress != null && (
-          <div className="mt-4 rounded-2xl border border-white/20 bg-white/10 p-4">
-            <div className="mb-2 text-sm text-zinc-300">{huntText}</div>
-            <div className="h-2 w-full rounded-full bg-zinc-800">
-              <div className="h-2 rounded-full bg-blue-600" style={{ width: `${huntProgress}%` }}></div>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-2 text-sm text-slate-700">{huntText}</div>
+            <div className="h-2 w-full rounded-full bg-slate-200">
+              <div className="h-2 rounded-full bg-slate-900" style={{ width: `${huntProgress}%` }}></div>
             </div>
           </div>
         )}
 
         <div className="mt-8 flex items-center gap-3">
-          <button onClick={() => setTab("campaigns")} className={`rounded-xl border px-3 py-2 text-sm ${tab === "campaigns" ? "border-blue-500 bg-blue-600 text-white" : "border-white/20 bg-white/10 text-zinc-200"}`}>Campaigns</button>
-          <button onClick={() => setTab("activity")} className={`rounded-xl border px-3 py-2 text-sm ${tab === "activity" ? "border-blue-500 bg-blue-600 text-white" : "border-white/20 bg-white/10 text-zinc-200"}`}>Activity Log</button>
-          <button onClick={() => setTab("prospects")} className={`rounded-xl border px-3 py-2 text-sm ${tab === "prospects" ? "border-blue-500 bg-blue-600 text-white" : "border-white/20 bg-white/10 text-zinc-200"}`}>Prospects</button>
+          <button onClick={() => setTab("campaigns")} className={`rounded-xl border px-3 py-2 text-sm ${tab === "campaigns" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>Campaigns</button>
+          <button onClick={() => setTab("activity")} className={`rounded-xl border px-3 py-2 text-sm ${tab === "activity" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>Activity</button>
+          <button onClick={() => setTab("prospects")} className={`rounded-xl border px-3 py-2 text-sm ${tab === "prospects" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}>Prospects</button>
         </div>
 
         {loading && (
@@ -177,37 +177,37 @@ export default function HuntingDashboardPage() {
         )}
 
         {error && (
-          <div className="mt-8 rounded-2xl border border-red-600/30 bg-red-900/30 p-4 text-red-300">{error}</div>
+          <div className="mt-8 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-800">{error}</div>
         )}
 
         {!loading && !error && tab === "campaigns" && (
           <div className="mt-8">
             <div className="mb-4 flex justify-end">
-              <a href="/dashboard/hunting/create" className="rounded-xl border border-white/20 bg-white/10 px-4 py-2 text-sm">+ Create New Campaign</a>
+              <a href="/dashboard/hunting/create" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Create Campaign</a>
             </div>
             {campaigns.length === 0 ? (
-              <div className="rounded-2xl border border-white/20 bg-white/10 p-6 text-center text-sm text-zinc-300">No campaigns yet</div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">No campaigns yet</div>
             ) : (
               <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
                 {campaigns.map((c) => (
-                  <div key={c.id} className="rounded-3xl border border-white/20 bg-gradient-to-br from-zinc-900/80 to-zinc-800/60 p-6 shadow-2xl shadow-black/30 backdrop-blur-xl">
+                  <div key={c.id} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
                     <div className="flex items-center justify-between">
-                      <div className="text-lg font-semibold">{c.name}</div>
-                      <span className={`rounded-full border px-3 py-1 text-xs ${c.status === "active" ? "border-green-600/40 bg-green-700/30 text-green-300" : c.status === "paused" ? "border-yellow-600/40 bg-yellow-700/30 text-yellow-300" : "border-white/20 bg-white/10 text-zinc-300"}`}>{c.status.toUpperCase()}</span>
+                      <div className="text-lg font-semibold text-slate-900">{c.name}</div>
+                      <span className={`rounded-full border px-3 py-1 text-xs ${c.status === "active" ? "border-green-200 bg-green-50 text-green-700" : c.status === "paused" ? "border-amber-200 bg-amber-50 text-amber-700" : "border-slate-200 bg-slate-50 text-slate-700"}`}>{c.status.toUpperCase()}</span>
                     </div>
-                    <div className="mt-2 text-sm text-zinc-300">{c.target_summary || "—"}</div>
+                    <div className="mt-2 text-sm text-slate-700">{c.target_summary || "—"}</div>
                     <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                      <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">Found {c.found_count ?? 0}</div>
-                      <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">Contacted {c.contacted_count ?? 0}</div>
-                      <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">Replied {c.replied_count ?? 0}</div>
-                      <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">Booked {c.booked_count ?? 0}</div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">Found {c.found_count ?? 0}</div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">Contacted {c.contacted_count ?? 0}</div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">Replied {c.replied_count ?? 0}</div>
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">Booked {c.booked_count ?? 0}</div>
                     </div>
-                    <div className="mt-3 text-xs text-zinc-400">Last run {c.last_run_at ? new Date(c.last_run_at).toLocaleString() : "—"}</div>
+                    <div className="mt-3 text-xs text-slate-500">Last run {c.last_run_at ? new Date(c.last_run_at).toLocaleString() : "—"}</div>
                     <div className="mt-4 flex flex-wrap items-center gap-2">
-                      <button onClick={() => runNow(c.id)} disabled={actionBusy === c.id} className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm disabled:opacity-60">{actionBusy === c.id ? "…" : "▶️ Run Now"}</button>
-                      <button onClick={() => pause(c.id)} disabled={actionBusy === c.id} className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm disabled:opacity-60">⏸️ Pause</button>
-                      <button className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm">⚙️ Edit</button>
-                      <button className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm">📊 View Details</button>
+                      <button onClick={() => runNow(c.id)} disabled={actionBusy === c.id} className="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white disabled:opacity-60">{actionBusy === c.id ? "…" : "Run"}</button>
+                      <button onClick={() => pause(c.id)} disabled={actionBusy === c.id} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-60">Pause</button>
+                      <a href={`/dashboard/hunting/create?edit=${c.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">Edit</a>
+                      <a href={`/dashboard/hunting/${c.id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">View</a>
                     </div>
                   </div>
                 ))}
@@ -219,12 +219,12 @@ export default function HuntingDashboardPage() {
         {!loading && !error && tab === "activity" && (
           <div className="mt-8">
             {runs.length === 0 ? (
-              <div className="rounded-2xl border border-white/20 bg-white/10 p-6 text-center text-sm text-zinc-300">No recent activity</div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">No recent activity</div>
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-white/20 bg-white/10">
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-zinc-300">
+                    <tr className="text-slate-600">
                       <th className="p-2 text-left">Timestamp</th>
                       <th className="p-2 text-left">Campaign</th>
                       <th className="p-2 text-left">Run Type</th>
@@ -235,15 +235,15 @@ export default function HuntingDashboardPage() {
                   </thead>
                   <tbody>
                     {runs.map((r) => (
-                      <tr key={r.id} className="border-t border-white/10">
+                      <tr key={r.id} className="border-t border-slate-100">
                         <td className="p-2">{new Date(r.created_at).toLocaleString()}</td>
                         <td className="p-2">{r.campaign_name || r.campaign_id}</td>
                         <td className="p-2">{r.run_type.toUpperCase()}</td>
                         <td className="p-2">{r.result_summary || "—"}</td>
                         <td className="p-2">
-                          <span className={`rounded-full border px-3 py-1 text-xs ${r.status === "success" ? "border-green-600/40 bg-green-700/30 text-green-300" : r.status === "partial" ? "border-yellow-600/40 bg-yellow-700/30 text-yellow-300" : "border-red-600/40 bg-red-700/30 text-red-300"}`}>{r.status.toUpperCase()}</span>
+                          <span className={`rounded-full border px-3 py-1 text-xs ${r.status === "success" ? "border-green-200 bg-green-50 text-green-700" : r.status === "partial" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-red-200 bg-red-50 text-red-700"}`}>{r.status.toUpperCase()}</span>
                         </td>
-                        <td className="p-2"><button className="rounded-xl border border-white/20 bg-white/10 px-3 py-1">View Details</button></td>
+                        <td className="p-2"><a href={`/dashboard/hunting/${r.campaign_id}`} className="rounded-xl border border-slate-200 bg-white px-3 py-1 text-slate-700 hover:bg-slate-50">View</a></td>
                       </tr>
                     ))}
                   </tbody>
@@ -255,14 +255,14 @@ export default function HuntingDashboardPage() {
 
         {!loading && !error && tab === "prospects" && (
           <div className="mt-8">
-            <div className="mb-3 text-xs text-zinc-400">Supabase table: prospects</div>
+            <div className="mb-3 text-xs text-slate-500">Supabase table: prospects</div>
             {prospects.length === 0 ? (
-              <div className="rounded-2xl border border-white/20 bg-white/10 p-6 text-center text-sm text-zinc-300">No prospects yet</div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-600">No prospects yet</div>
             ) : (
-              <div className="overflow-x-auto rounded-2xl border border-white/20 bg-white/10">
+              <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
                 <table className="w-full text-sm">
                   <thead>
-                    <tr className="text-zinc-300">
+                    <tr className="text-slate-600">
                       <th className="p-2 text-left">Added</th>
                       <th className="p-2 text-left">Name</th>
                       <th className="p-2 text-left">Title</th>
@@ -278,7 +278,7 @@ export default function HuntingDashboardPage() {
                   </thead>
                   <tbody>
                     {prospects.map((p) => (
-                      <tr key={p.id} className="border-t border-white/10">
+                      <tr key={p.id} className="border-t border-slate-100">
                         <td className="p-2">{new Date(p.created_at).toLocaleString()}</td>
                         <td className="p-2">{p.name}</td>
                         <td className="p-2">{p.title || "—"}</td>
