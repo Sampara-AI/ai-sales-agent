@@ -37,6 +37,9 @@ type CampaignRow = {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const isDev = process.env.NODE_ENV === "development";
   const supabase = createRouteHandlerClient({ cookies });
+  const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
+  const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
+  const isInternal = !!internalSecret && internalHeader === internalSecret;
 
   const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
@@ -50,14 +53,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let admin: ReturnType<typeof createClient> | null = null;
 
   try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+    admin = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
+
     const { data: userData } = await supabase.auth.getUser();
     let currentUser = userData.user as any;
+    if (!currentUser && isInternal) {
+      currentUser = { id: "internal", email: "internal@system" };
+    }
     if (!currentUser && isDev) {
       currentUser = { id: "dev", email: "dev@local.com" };
     }
     if (!currentUser) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     const adminEmail = String(process.env.ADMIN_EMAIL || "").toLowerCase();
-    const cRes = await supabase
+    const cRes = await (admin || supabase)
       .from("hunting_campaigns")
       .select("id,name,status,titles,industries,locations,size_min,size_max,keywords,exclude_companies,daily_prospect_limit,min_ai_score,send_weekends,schedule_start,created_by")
       .eq("id", id)
@@ -66,6 +76,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const c = cRes.data as CampaignRow;
     let isAdmin = false;
     if (isDev) {
+      isAdmin = true;
+    } else if (isInternal) {
       isAdmin = true;
     } else {
       const pr = await supabase.from("profiles").select("role").eq("user_id", currentUser.id).single();
@@ -79,7 +91,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     if (!["active", "draft"].includes(String(c.status))) return NextResponse.json({ success: false, error: "Campaign not in runnable state" }, { status: 400 });
 
-    if (!isDev) {
+    if (!isDev && !isInternal) {
       const prSub = await supabase.from("profiles").select("subscription_status").eq("user_id", currentUser.id).single();
       const tier = String((prSub.data as any)?.subscription_status || "free").toLowerCase();
       const monthlyLimit = tier === "paid" || tier === "pro" ? 10 : 2;
@@ -167,7 +179,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ success: false, error: runSummary }, { status: 502 });
     }
 
-    const existingRes = await supabase
+    const existingRes = await (admin || supabase)
       .from("prospects")
       .select("id,name,company,email")
       .or(`campaign_id.eq.${id},source.eq.campaign:${id}`);
@@ -179,10 +191,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     let prospects_added = 0;
     let high_scorers = 0;
     let emails_generated = 0;
-
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
-    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
-    admin = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
 
     for (const p of people) {
       const name = String(p.name || [p.first_name, p.last_name].filter(Boolean).join(" ")).trim();
@@ -205,7 +213,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       let aiScore: number | null = null;
       let fitReasoning: string | null = null;
       try {
-        const enr = await fetch(`${baseUrl}/api/enrich-prospect`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(enrichPayload) });
+          const enr = await fetch(`${baseUrl}/api/enrich-prospect`, { method: "POST", headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) }, body: JSON.stringify(enrichPayload) });
         if (enr.ok) {
           const ej = await enr.json();
           aiScore = typeof ej.ai_score === "number" ? ej.ai_score : null;
@@ -220,6 +228,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         name,
         title: p.title || null,
         company,
+        domain: email ? String(email).split("@")[1]?.replace(/^www\./, "")?.toLowerCase() || null : null,
         company_size: p.organization?.employee_count || null,
         industry: p.organization?.industry || null,
         linkedin_url: p.linkedin_url || null,
@@ -238,7 +247,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       if (aiScore != null && aiScore >= minScore) {
         high_scorers += 1;
         try {
-          const gen = await fetch(`${baseUrl}/api/generate-outreach`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name, title: p.title || undefined, company, industry: p.organization?.industry || undefined, recent_activity: "", pain_points: "", source: `campaign:${id}`, prospect_id: ins.data?.id }) });
+          const gen = await fetch(`${baseUrl}/api/generate-outreach`, { method: "POST", headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) }, body: JSON.stringify({ name, title: p.title || undefined, company, industry: p.organization?.industry || undefined, recent_activity: "", pain_points: "", source: `campaign:${id}`, prospect_id: ins.data?.id }) });
           if (gen.ok) {
             emails_generated += 1;
             await (admin || supabase).from("prospects").update({ status: "email_ready" }).eq("id", ins.data?.id);

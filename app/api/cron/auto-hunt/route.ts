@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { cookies } from "next/headers";
+import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { isAdminUser } from "@/lib/auth/admin-check";
 
 type Campaign = {
   id: string;
@@ -13,9 +16,23 @@ type Campaign = {
 
 export async function POST(req: Request) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
-  if (!supabaseUrl || !supabaseAnonKey) return NextResponse.json({ success: false, error: "Missing Supabase configuration" }, { status: 500 });
-  const supabase = createClient(supabaseUrl, supabaseAnonKey);
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
+  if (!supabaseUrl || !supabaseServiceKey) return NextResponse.json({ success: false, error: "Missing Supabase configuration" }, { status: 500 });
+
+  const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
+  const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
+  const isInternal = !!internalSecret && internalHeader === internalSecret;
+  if (!isInternal) {
+    const sessionClient = createRouteHandlerClient({ cookies });
+    const { data: userData } = await sessionClient.auth.getUser();
+    const user = userData.user;
+    if (!user) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    const ok = await isAdminUser(sessionClient as any, user.id);
+    if (!ok) return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+  }
+  if (!internalSecret) return NextResponse.json({ success: false, error: "Missing INTERNAL_API_KEY" }, { status: 500 });
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
   const host = req.headers.get("x-forwarded-host") || req.headers.get("host") || "localhost:3000";
   const proto = req.headers.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
@@ -39,6 +56,7 @@ export async function POST(req: Request) {
       .or(`schedule_start.lte.${nowIso},schedule_start.is.null`)
       .order("schedule_start", { ascending: true });
     const campaigns = (q.data || []) as Campaign[];
+    const internalHeaders = { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) };
 
     for (const c of campaigns) {
       campaigns_processed += 1;
@@ -51,7 +69,7 @@ export async function POST(req: Request) {
       }
       if (shouldHunt) {
         try {
-          const res = await fetch(`${baseUrl}/api/campaigns/${c.id}/hunt`, { method: "POST" });
+          const res = await fetch(`${baseUrl}/api/campaigns/${c.id}/hunt`, { method: "POST", headers: internalHeaders });
           if (res.ok) {
             const data = await res.json();
             hunts_run += 1;
@@ -73,11 +91,11 @@ export async function POST(req: Request) {
 
       if (readyCount > 0 && (!isWeekend || c.send_weekends)) {
         try {
-          const res = await fetch(`${baseUrl}/api/campaigns/${c.id}/send`, { method: "POST" });
+          const res = await fetch(`${baseUrl}/api/campaigns/${c.id}/send`, { method: "POST", headers: internalHeaders });
           if (res.ok) {
             const data = await res.json();
             email_batches_sent += 1;
-            total_emails_sent += Number(data?.emails_sent || 0);
+            total_emails_sent += Number(data?.jobs_enqueued || 0);
           }
         } catch {}
       }
@@ -117,10 +135,10 @@ export async function POST(req: Request) {
 
       if (followupDue > 0) {
         try {
-          const res = await fetch(`${baseUrl}/api/campaigns/${c.id}/followup`, { method: "POST" });
+          const res = await fetch(`${baseUrl}/api/campaigns/${c.id}/followup`, { method: "POST", headers: internalHeaders });
           if (res.ok) {
             const data = await res.json();
-            followups_sent += Number(data?.followups_sent || 0);
+            followups_sent += Number(data?.jobs_enqueued || 0);
           }
         } catch {}
       }
@@ -129,7 +147,13 @@ export async function POST(req: Request) {
       await supabase.from("hunting_campaigns").update({ schedule_start: next }).eq("id", c.id);
     }
 
-    return NextResponse.json({ campaigns_processed, hunts_run, email_batches_sent, followups_sent, total_prospects_found, total_emails_sent });
+    let worker: any = null;
+    try {
+      const wRes = await fetch(`${baseUrl}/api/cron/worker`, { method: "POST", headers: internalHeaders, body: JSON.stringify({ limit: 50 }) });
+      worker = await wRes.json().catch(() => ({}));
+    } catch {}
+
+    return NextResponse.json({ campaigns_processed, hunts_run, email_batches_sent, followups_sent, total_prospects_found, total_emails_sent, worker });
   } catch (err: any) {
     return NextResponse.json({ success: false, error: err?.message || "Auto-hunt failed" }, { status: 500 });
   }

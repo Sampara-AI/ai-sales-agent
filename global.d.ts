@@ -9,3 +9,5 @@ declare module 'html2pdf.js' {
   type Instance = { save: () => void };
   export default function html2pdf(element: HTMLElement, options?: Options): Instance;
 }
+
+declare module "pdf-parse";

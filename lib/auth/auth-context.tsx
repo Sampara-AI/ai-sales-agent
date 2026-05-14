@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { User } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/client";
+import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
 import { useRouter } from "next/navigation";
 
 interface Profile {
@@ -34,7 +34,7 @@ export function useAuth() {
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const supabase = useMemo(() => createClient(), []);
+  const supabase = useMemo(() => createClientComponentClient(), []);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -102,6 +102,9 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     return error ? { error: error.message } : {};
   };
   const signUp = async (email: string, password: string, fullName: string) => {
+    if (String(process.env.NEXT_PUBLIC_DISABLE_SIGNUP || "").toLowerCase() === "true") {
+      return { error: "Sign-up is disabled. Ask your admin for an invite." };
+    }
     const redirectTo = (typeof window !== "undefined" ? window.location.origin : process.env.NEXT_PUBLIC_SITE_URL) || undefined;
     const { data, error } = await supabase.auth.signUp({ email, password, options: { data: { full_name: fullName }, emailRedirectTo: redirectTo } });
     if (error) return { error: error.message };

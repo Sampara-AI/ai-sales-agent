@@ -26,6 +26,7 @@ function Sidebar() {
       <div className="space-y-2 text-sm">
         <Link href="/dashboard" className="block rounded-lg bg-white/5 px-3 py-2">Overview</Link>
         <Link href="/dashboard/hunting" className="block rounded-lg bg-white/5 px-3 py-2">🎯 Hunting Campaigns <span className="ml-2 rounded-full bg-blue-600 px-2 py-0.5 text-[10px] text-white">{activeCampaigns}</span></Link>
+        <Link href="/dashboard/inbox" className="block rounded-lg bg-white/5 px-3 py-2">Inbox</Link>
         <Link href="/prospects" className="block rounded-lg bg-white/5 px-3 py-2">Prospects</Link>
         {(isAdmin || isDev) && <Link href="/admin" className="block rounded-lg bg-white/5 px-3 py-2">🛡️ Admin</Link>}
       </div>

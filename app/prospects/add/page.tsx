@@ -6,6 +6,7 @@ type FormData = {
   name: string;
   title: string;
   company: string;
+  domain: string;
   companySize: "1-50" | "51-200" | "201-1000" | "1000+" | "";
   industry: "Technology" | "SaaS" | "Fintech" | "Healthcare" | "Manufacturing" | "Other" | "";
   linkedinUrl: string;
@@ -28,6 +29,7 @@ export default function AddProspectPage() {
     name: "",
     title: "",
     company: "",
+    domain: "",
     companySize: "",
     industry: "",
     linkedinUrl: "",
@@ -71,6 +73,7 @@ export default function AddProspectPage() {
         name: form.name.trim(),
         title: form.title.trim() || null,
         company: form.company.trim(),
+        domain: form.domain.trim() || null,
         company_size: form.companySize || null,
         industry: form.industry || null,
         linkedin_url: form.linkedinUrl.trim() || null,
@@ -90,6 +93,7 @@ export default function AddProspectPage() {
         name: "",
         title: "",
         company: "",
+        domain: "",
         companySize: "",
         industry: "",
         linkedinUrl: "",
@@ -174,6 +178,16 @@ export default function AddProspectPage() {
                 placeholder="Acme Corp"
               />
               {errors.company && <p className="mt-1 text-sm text-red-400">{errors.company}</p>}
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-zinc-300">Domain</label>
+              <input
+                type="text"
+                value={form.domain}
+                onChange={(e) => handleChange("domain", e.target.value)}
+                className="mt-2 w-full rounded-lg border border-white/10 bg-zinc-800 p-3 text-zinc-50 placeholder-zinc-500 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
+                placeholder="example.com"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-zinc-300">Company Size</label>

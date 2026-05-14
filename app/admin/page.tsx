@@ -14,6 +14,9 @@ type Campaign = { id: string; name: string; status: string };
 type Prospect = { id: string; created_at: string; last_email_sent?: string | null };
 type Run = { id: string; created_at: string; campaign_id: string; run_type: string; status: string; result_summary?: string | null };
 type SetupReq = { id: string; created_at: string; name?: string | null; email?: string | null; company?: string | null; status?: string | null };
+type QueueCounts = { queued: number; running: number; succeeded: number; dead: number };
+type QueueJob = { id: string; type: string; status: string; attempts: number; max_attempts: number; last_error?: string | null; updated_at?: string | null };
+type KnowledgeDoc = { id: string; created_at: string; name: string; source?: string | null; content_type?: string | null; status?: string | null };
 
 function AdminContent() {
   const router = useRouter();
@@ -30,6 +33,20 @@ function AdminContent() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [setupRequests, setSetupRequests] = useState<SetupReq[]>([]);
   const [filterRole, setFilterRole] = useState<"all" | "free" | "paid" | "admin">("all");
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteName, setInviteName] = useState("");
+  const [inviteCompany, setInviteCompany] = useState("");
+  const [inviteRole, setInviteRole] = useState<"user" | "admin">("user");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteBanner, setInviteBanner] = useState<string | null>(null);
+  const [queueCounts, setQueueCounts] = useState<QueueCounts | null>(null);
+  const [deadJobs, setDeadJobs] = useState<QueueJob[]>([]);
+  const [queueBusy, setQueueBusy] = useState(false);
+  const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>([]);
+  const [knowledgeFile, setKnowledgeFile] = useState<File | null>(null);
+  const [knowledgeSource, setKnowledgeSource] = useState("");
+  const [knowledgeBusy, setKnowledgeBusy] = useState(false);
+  const [knowledgeBanner, setKnowledgeBanner] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) { router.replace("/dashboard"); return; }
@@ -66,6 +83,41 @@ function AdminContent() {
     };
     load();
   }, [supabase]);
+
+  useEffect(() => {
+    if (!user || !isAdmin) return;
+    let mounted = true;
+    const loadQueue = async () => {
+      try {
+        const res = await fetch("/api/admin/job-queue");
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        if (!mounted) return;
+        setQueueCounts(json?.counts || null);
+        setDeadJobs((json?.dead_jobs || []) as QueueJob[]);
+      } catch {}
+    };
+    loadQueue();
+    const t = setInterval(loadQueue, 10000);
+    return () => { mounted = false; clearInterval(t); };
+  }, [user, isAdmin]);
+
+  useEffect(() => {
+    if (!user || !isAdmin) return;
+    let mounted = true;
+    const loadKb = async () => {
+      try {
+        const res = await fetch("/api/admin/knowledge");
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) return;
+        if (!mounted) return;
+        setKnowledgeDocs((json?.documents || []) as KnowledgeDoc[]);
+      } catch {}
+    };
+    loadKb();
+    const t = setInterval(loadKb, 15000);
+    return () => { mounted = false; clearInterval(t); };
+  }, [user, isAdmin]);
 
   const signupsSeries = (() => {
     const byDay: Record<string, number> = {};
@@ -108,6 +160,83 @@ function AdminContent() {
   const makeAdmin = async (userId: string) => { await supabase.from("profiles").update({ role: "admin" }).eq("user_id", userId); };
   const suspendUser = async (userId: string) => { await supabase.from("profiles").update({ role: "suspended" }).eq("user_id", userId); };
   const markSetupContacted = async (id: string) => { await supabase.from("setup_calls").update({ status: "contacted" }).eq("id", id); };
+  const inviteUser = async () => {
+    setInviteBanner(null);
+    setError(null);
+    const email = inviteEmail.trim();
+    if (!email) { setError("Email is required"); return; }
+    try {
+      setInviteBusy(true);
+      const res = await fetch("/api/admin/invite-user", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, full_name: inviteName.trim(), company: inviteCompany.trim(), role: inviteRole }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Invite failed");
+      setInviteBanner(`Invite sent to ${email}`);
+      setInviteEmail("");
+      setInviteName("");
+      setInviteCompany("");
+      setInviteRole("user");
+      const uRes = await supabase.from("profiles").select("id,user_id,name,email,company,role,created_at").order("created_at", { ascending: false }).limit(500);
+      setUsers(((uRes.data || []) as Profile[]));
+    } catch (e: any) {
+      setError(e?.message || "Invite failed");
+    } finally {
+      setInviteBusy(false);
+    }
+  };
+
+  const retryDead = async (ids: string[]) => {
+    try {
+      setQueueBusy(true);
+      await fetch("/api/admin/job-queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "retry_dead", ids }) });
+      const res = await fetch("/api/admin/job-queue");
+      const json = await res.json().catch(() => ({}));
+      setQueueCounts(json?.counts || null);
+      setDeadJobs((json?.dead_jobs || []) as QueueJob[]);
+    } finally {
+      setQueueBusy(false);
+    }
+  };
+
+  const retryAllDead = async () => {
+    try {
+      setQueueBusy(true);
+      await fetch("/api/admin/job-queue", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "retry_all_dead" }) });
+      const res = await fetch("/api/admin/job-queue");
+      const json = await res.json().catch(() => ({}));
+      setQueueCounts(json?.counts || null);
+      setDeadJobs((json?.dead_jobs || []) as QueueJob[]);
+    } finally {
+      setQueueBusy(false);
+    }
+  };
+
+  const uploadKnowledge = async () => {
+    if (!knowledgeFile) { setKnowledgeBanner("Select a document first"); return; }
+    try {
+      setKnowledgeBusy(true);
+      setKnowledgeBanner(null);
+      const fd = new FormData();
+      fd.append("file", knowledgeFile);
+      if (knowledgeSource.trim()) fd.append("source", knowledgeSource.trim());
+      const res = await fetch("/api/admin/knowledge", { method: "POST", body: fd });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json?.error || "Upload failed");
+      setKnowledgeBanner(`Uploaded and indexed: ${knowledgeFile.name} (${json?.chunks || 0} chunks)`);
+      setKnowledgeFile(null);
+      setKnowledgeSource("");
+      const list = await fetch("/api/admin/knowledge");
+      const lj = await list.json().catch(() => ({}));
+      setKnowledgeDocs((lj?.documents || []) as KnowledgeDoc[]);
+    } catch (e: any) {
+      setKnowledgeBanner(e?.message || "Upload failed");
+    } finally {
+      setKnowledgeBusy(false);
+    }
+  };
 
   const pauseAllCampaigns = async () => { await supabase.from("hunting_campaigns").update({ status: "paused" }).eq("status", "active"); };
   const runManualHuntAll = async () => {
@@ -159,6 +288,17 @@ function AdminContent() {
               <button onClick={() => setFilterRole("paid")} className={`rounded px-2 py-1 ${filterRole==='paid'?"bg-blue-600 text-white":"bg_white/5"}`}>Paid</button>
               <button onClick={() => setFilterRole("admin")} className={`rounded px-2 py-1 ${filterRole==='admin'?"bg-blue-600 text-white":"bg_white/5"}`}>Admin</button>
             </div>
+          </div>
+          {inviteBanner && <div className="mb-3 rounded-lg border border-green-600/30 bg-green-900/30 p-3 text-green-300 text-sm">{inviteBanner}</div>}
+          <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-5">
+            <input value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} placeholder="User email" className="rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm" />
+            <input value={inviteName} onChange={(e) => setInviteName(e.target.value)} placeholder="Full name (optional)" className="rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm" />
+            <input value={inviteCompany} onChange={(e) => setInviteCompany(e.target.value)} placeholder="Company (optional)" className="rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm" />
+            <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value === "admin" ? "admin" : "user")} className="rounded-lg border border-white/10 bg-zinc-800 p-3 text-sm">
+              <option value="user">User</option>
+              <option value="admin">Admin</option>
+            </select>
+            <button onClick={inviteUser} disabled={inviteBusy} className="rounded-lg bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-60">{inviteBusy ? "Inviting..." : "Invite User"}</button>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -216,6 +356,59 @@ function AdminContent() {
           <div className="mb-3 text-sm font-semibold">System Controls</div>
             <div className="flex flex-wrap items-center gap-2"><button onClick={pauseAllCampaigns} className="rounded bg-zinc-800 px-3 py-2 text-sm">Pause All Campaigns</button><button onClick={runManualHuntAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Manual Hunt</button><button onClick={sendEmailsAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Send Emails Now</button><button onClick={runFollowupsAll} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Followups</button><button onClick={runAutoHuntNow} className="rounded bg-zinc-800 px-3 py-2 text-sm">Run Auto-Hunt Now</button><button onClick={exportAllData} className="rounded bg-zinc-800 px-3 py-2 text-sm">Export All Data</button></div>
             <div className="mt-3 text-xs text-zinc-400">Use the hunting dashboard to view error logs.</div>
+            <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="flex items-center justify-between">
+                <div className="text-sm font-semibold">Job Queue</div>
+                <button onClick={retryAllDead} disabled={queueBusy || !deadJobs.length} className="rounded bg-zinc-800 px-2 py-1 text-xs disabled:opacity-60">Retry all dead</button>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-zinc-300 sm:grid-cols-4">
+                <div className="rounded border border-white/10 bg-zinc-900/40 p-2">Queued: {queueCounts?.queued ?? "—"}</div>
+                <div className="rounded border border-white/10 bg-zinc-900/40 p-2">Running: {queueCounts?.running ?? "—"}</div>
+                <div className="rounded border border-white/10 bg-zinc-900/40 p-2">Succeeded: {queueCounts?.succeeded ?? "—"}</div>
+                <div className="rounded border border-white/10 bg-zinc-900/40 p-2">Dead: {queueCounts?.dead ?? "—"}</div>
+              </div>
+              <div className="mt-3 space-y-2">
+                {deadJobs.length === 0 ? (
+                  <div className="text-xs text-zinc-400">No dead-letter jobs</div>
+                ) : (
+                  deadJobs.slice(0, 10).map((j) => (
+                    <div key={j.id} className="flex items-start justify-between gap-3 rounded border border-white/10 bg-zinc-900/30 p-2">
+                      <div className="min-w-0">
+                        <div className="text-xs text-zinc-200">{j.type} • attempts {j.attempts}/{j.max_attempts}</div>
+                        <div className="mt-1 truncate text-[11px] text-zinc-400">{j.last_error || "—"}</div>
+                      </div>
+                      <button onClick={() => retryDead([j.id])} disabled={queueBusy} className="shrink-0 rounded bg-zinc-800 px-2 py-1 text-xs disabled:opacity-60">Retry</button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div className="mt-6 rounded-xl border border-white/10 bg-white/5 p-3">
+              <div className="text-sm font-semibold">Knowledge Base (RAG)</div>
+              <div className="mt-2 text-xs text-zinc-400">Upload product spec sheets, FAQs, and offering docs to ground inbound reply handling.</div>
+              {knowledgeBanner && <div className="mt-3 rounded border border-white/10 bg-zinc-900/40 p-2 text-xs text-zinc-200">{knowledgeBanner}</div>}
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                <input type="file" accept=".pdf,.txt,.md,text/plain,application/pdf" onChange={(e) => setKnowledgeFile(e.currentTarget.files?.[0] || null)} className="rounded border border-white/10 bg-zinc-800 p-2 text-xs" />
+                <input value={knowledgeSource} onChange={(e) => setKnowledgeSource(e.target.value)} placeholder="Source label (optional)" className="rounded border border-white/10 bg-zinc-800 p-2 text-xs" />
+                <button onClick={uploadKnowledge} disabled={knowledgeBusy || !knowledgeFile} className="rounded bg-blue-600 px-3 py-2 text-xs text-white disabled:opacity-60">{knowledgeBusy ? "Indexing..." : "Upload & Index"}</button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {knowledgeDocs.length === 0 ? (
+                  <div className="text-xs text-zinc-400">No indexed documents yet</div>
+                ) : (
+                  knowledgeDocs.slice(0, 8).map((d) => (
+                    <div key={d.id} className="flex items-center justify-between gap-3 rounded border border-white/10 bg-zinc-900/30 p-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-xs text-zinc-200">{d.name}</div>
+                        <div className="mt-1 truncate text-[11px] text-zinc-400">{d.source || d.content_type || "—"} • {new Date(d.created_at).toLocaleString()}</div>
+                      </div>
+                      <div className="shrink-0 text-[11px] text-zinc-400">{d.status || "ready"}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
         </div>
 

@@ -9,6 +9,7 @@ const nunito = Nunito_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "
 function SignupForm() {
   const router = useRouter();
   const { signUp } = useAuth();
+  const disableSignup = String(process.env.NEXT_PUBLIC_DISABLE_SIGNUP || "").toLowerCase() === "true";
   const [name, setName] = useState("");
   const [company, setCompany] = useState("");
   const [email, setEmail] = useState("");
@@ -31,6 +32,11 @@ function SignupForm() {
   return (
     <div className="mx-auto w-full max-w-md rounded-2xl border border-white/20 bg-white/10 p-6 backdrop-blur-xl">
       <div className="text-lg font-semibold">Create Account</div>
+      {disableSignup && (
+        <div className="mt-3 rounded border border-amber-600/30 bg-amber-900/30 p-2 text-sm text-amber-200">
+          Sign-up is disabled. Ask your admin for an invite.
+        </div>
+      )}
       {error && <div className="mt-3 rounded border border-red-600/30 bg-red-900/30 p-2 text-sm text-red-300">{error}</div>}
       {success && <div className="mt-3 rounded border border-green-600/30 bg-green-900/30 p-2 text-sm text-green-300">{success}</div>}
       <div className="mt-4 space-y-3">
@@ -39,7 +45,7 @@ function SignupForm() {
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="Email" className="w-full rounded-xl border border-white/20 bg-white/10 p-3 text-sm" />
         <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password" className="w-full rounded-xl border border-white/20 bg-white/10 p-3 text-sm" />
         <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Confirm Password" className="w-full rounded-xl border border-white/20 bg-white/10 p-3 text-sm" />
-        <button onClick={onSubmit} disabled={loading} className="w-full rounded-xl bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-60">{loading ? "…" : "Create Account"}</button>
+        <button onClick={onSubmit} disabled={loading || disableSignup} className="w-full rounded-xl bg-blue-600 px-4 py-2 text-sm text-white disabled:opacity-60">{loading ? "…" : "Create Account"}</button>
         <div className="flex items-center justify-between text-xs">
           <a href="/auth/login" className="text-blue-300">Sign in</a>
         </div>

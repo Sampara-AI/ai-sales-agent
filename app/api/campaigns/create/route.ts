@@ -30,7 +30,11 @@ export async function POST(req: NextRequest) {
       exclude_companies: body?.exclude_companies || [],
       daily_prospect_limit: body?.daily_prospect_limit ?? 20,
       min_ai_score: body?.min_ai_score ?? 70,
+      email_daily_limit: body?.email_daily_limit ?? 10,
       send_weekends: !!body?.send_weekends,
+      followup_days: Array.isArray(body?.followup_days) ? body.followup_days : [3, 7, 14],
+      max_followups: body?.max_followups ?? 3,
+      require_manual_review: !!body?.require_manual_review,
       status,
       schedule_start,
       created_by: userId,
@@ -43,4 +47,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
 }
-

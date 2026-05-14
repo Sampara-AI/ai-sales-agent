@@ -22,6 +22,7 @@ type CampaignData = {
   minAiScore: number;
   emailDailyLimit: number;
   sendWeekends: boolean;
+  requireManualReview: boolean;
   enableFollowups: boolean;
   followupDays: number[];
   maxFollowups: number;
@@ -79,6 +80,7 @@ export default function CreateCampaignPage() {
     minAiScore: 70,
     emailDailyLimit: 10,
     sendWeekends: false,
+    requireManualReview: false,
     enableFollowups: true,
     followupDays: [3,7,14],
     maxFollowups: 3,
@@ -177,7 +179,11 @@ export default function CreateCampaignPage() {
       exclude_companies: data.excludeCompanies,
       daily_prospect_limit: data.dailyProspectLimit,
       min_ai_score: data.minAiScore,
+      email_daily_limit: data.emailDailyLimit,
       send_weekends: data.sendWeekends,
+      followup_days: data.enableFollowups ? data.followupDays : [],
+      max_followups: data.enableFollowups ? data.maxFollowups : 0,
+      require_manual_review: data.requireManualReview,
       status,
       schedule_start: status === "scheduled" ? data.scheduleStart || null : null,
       created_by: createdBy,
@@ -359,6 +365,13 @@ export default function CreateCampaignPage() {
                 {errors.emailDailyLimit && <div className="mt-1 text-xs text-red-400">{errors.emailDailyLimit}</div>}
               </div>
               <div className="flex items-center justify-between">
+                <div className="text-sm">Require Manual Review?</div>
+                <label className="relative inline-flex cursor-pointer items-center">
+                  <input type="checkbox" className="peer sr-only" checked={data.requireManualReview} onChange={(e) => setData((d) => ({ ...d, requireManualReview: e.target.checked }))} />
+                  <div className="peer h-6 w-10 rounded-full bg-zinc-700 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition peer-checked:bg-blue-600 peer-checked:after:translate-x-4"></div>
+                </label>
+              </div>
+              <div className="flex items-center justify-between">
                 <div className="text-sm">Send on Weekends?</div>
                 <label className="relative inline-flex cursor-pointer items-center">
                   <input type="checkbox" className="peer sr-only" checked={data.sendWeekends} onChange={(e) => setData((d) => ({ ...d, sendWeekends: e.target.checked }))} />
@@ -414,6 +427,7 @@ export default function CreateCampaignPage() {
                   <div>Company size: {data.sizeMin}–{data.sizeMax}</div>
                   <div>Keywords: {data.keywords.join(", ")}</div>
                   <div>Exclude: {data.excludeCompanies.join(", ")}</div>
+                  <div>Manual review: {data.requireManualReview ? "Required" : "Off (AI sends)"}</div>
                   <div>Send weekends: {data.sendWeekends ? "Yes" : "No"}</div>
                   <div>Follow-ups: {data.enableFollowups ? `${data.followupDays.join(", ")} (max ${data.maxFollowups})` : "Disabled"}</div>
                 </div>
