@@ -5,12 +5,16 @@ import { createClient } from "@supabase/supabase-js";
 
 export async function POST(req: NextRequest) {
   try {
-    const supabase = createRouteHandlerClient({ cookies });
-    const { data: session } = await supabase.auth.getSession();
-    const userId = session?.session?.user?.id || null;
-    if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
     const body = await req.json();
+    const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+    let userId = body?.created_by || null;
+    if (!demoMode) {
+      const supabase = createRouteHandlerClient({ cookies });
+      const { data: session } = await supabase.auth.getSession();
+      userId = session?.session?.user?.id || null;
+      if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
     if (!supabaseUrl || !serviceKey) return NextResponse.json({ error: "Server not configured" }, { status: 500 });

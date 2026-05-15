@@ -21,6 +21,7 @@ type SendBody = {
 
 export async function POST(req: NextRequest) {
   try {
+    const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
     const apiKey = process.env.RESEND_API_KEY;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
@@ -43,7 +44,7 @@ export async function POST(req: NextRequest) {
 
     const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
     const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
-    const isInternal = !!internalSecret && internalHeader === internalSecret;
+    const isInternal = demoMode || (!!internalSecret && internalHeader === internalSecret);
     const runNow = Boolean((body as any)?.run_now);
     const enqueueOnly = (body as any)?.enqueue_only === false ? false : true;
     if (runNow && !isInternal) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });

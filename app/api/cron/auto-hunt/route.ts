@@ -15,13 +15,14 @@ type Campaign = {
 };
 
 export async function POST(req: Request) {
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
   if (!supabaseUrl || !supabaseServiceKey) return NextResponse.json({ success: false, error: "Missing Supabase configuration" }, { status: 500 });
 
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
   const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
-  const isInternal = !!internalSecret && internalHeader === internalSecret;
+  const isInternal = demoMode || (!!internalSecret && internalHeader === internalSecret);
   if (!isInternal) {
     const sessionClient = createRouteHandlerClient({ cookies });
     const { data: userData } = await sessionClient.auth.getUser();
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
     const ok = await isAdminUser(sessionClient as any, user.id);
     if (!ok) return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
   }
-  if (!internalSecret) return NextResponse.json({ success: false, error: "Missing INTERNAL_API_KEY" }, { status: 500 });
+  if (!demoMode && !internalSecret) return NextResponse.json({ success: false, error: "Missing INTERNAL_API_KEY" }, { status: 500 });
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
 

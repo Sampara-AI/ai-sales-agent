@@ -51,12 +51,15 @@ async function extractTextFromFile(file: File) {
 }
 
 export async function GET() {
-  const sessionClient = createRouteHandlerClient({ cookies });
-  const { data: userData } = await sessionClient.auth.getUser();
-  const user = userData.user;
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const ok = await isAdminUser(sessionClient as any, user.id);
-  if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (!demoMode) {
+    const sessionClient = createRouteHandlerClient({ cookies });
+    const { data: userData } = await sessionClient.auth.getUser();
+    const user = userData.user;
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ok = await isAdminUser(sessionClient as any, user.id);
+    if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const admin = createAdminClient();
   const res = await admin.from("knowledge_documents").select("id,created_at,name,source,content_type,status").order("created_at", { ascending: false }).limit(50);
@@ -65,12 +68,15 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const sessionClient = createRouteHandlerClient({ cookies });
-  const { data: userData } = await sessionClient.auth.getUser();
-  const user = userData.user;
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const ok = await isAdminUser(sessionClient as any, user.id);
-  if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (!demoMode) {
+    const sessionClient = createRouteHandlerClient({ cookies });
+    const { data: userData } = await sessionClient.auth.getUser();
+    const user = userData.user;
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ok = await isAdminUser(sessionClient as any, user.id);
+    if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
   if (!apiKey) return NextResponse.json({ error: "Missing OPENAI_API_KEY (required for embeddings)" }, { status: 500 });

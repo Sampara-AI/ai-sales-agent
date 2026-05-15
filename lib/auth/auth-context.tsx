@@ -34,12 +34,27 @@ export function useAuth() {
 
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const supabase = useMemo(() => createClientComponentClient(), []);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (demoMode) {
+      setUser({ id: "demo-user" } as unknown as User);
+      setProfile({
+        id: "demo-profile",
+        email: "demo@local",
+        full_name: "Demo",
+        company: null,
+        role: "admin",
+        subscription_status: "free",
+        onboarding_completed: true,
+      });
+      setLoading(false);
+      return;
+    }
     let mounted = true;
     const init = async () => {
       setLoading(true);
@@ -95,13 +110,15 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
       }
     });
     return () => { sub?.subscription.unsubscribe(); mounted = false; };
-  }, [supabase]);
+  }, [supabase, demoMode]);
 
   const signIn = async (email: string, password: string) => {
+    if (demoMode) return {};
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     return error ? { error: error.message } : {};
   };
   const signUp = async (email: string, password: string, fullName: string) => {
+    if (demoMode) return {};
     if (String(process.env.NEXT_PUBLIC_DISABLE_SIGNUP || "").toLowerCase() === "true") {
       return { error: "Sign-up is disabled. Ask your admin for an invite." };
     }
@@ -116,6 +133,10 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
     return {};
   };
   const signOut = async () => {
+    if (demoMode) {
+      router.replace("/dashboard");
+      return;
+    }
     await supabase.auth.signOut();
     setUser(null);
     setProfile(null);

@@ -44,9 +44,10 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as ProspectInput;
     const enqueueOnly = Boolean((body as any)?.enqueue_only);
+    const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
     const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
     const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
-    const isInternal = !!internalSecret && internalHeader === internalSecret;
+    const isInternal = demoMode || (!!internalSecret && internalHeader === internalSecret);
     if (!isInternal) {
       const sessionClient = createRouteHandlerClient({ cookies });
       const { data: userData } = await sessionClient.auth.getUser();

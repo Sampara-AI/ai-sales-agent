@@ -23,6 +23,8 @@ export default function OnboardingPage() {
 
   useEffect(() => {
     const init = async () => {
+      const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+      if (demoMode) { router.replace("/dashboard/hunting"); return; }
       setLoading(true);
       const { data } = await supabase.auth.getUser();
       if (!data.user) { router.replace("/auth/login?next=/onboarding"); return; }

@@ -1,6 +1,7 @@
 import { NextResponse, NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
+import { createAdminClient } from "@/lib/server/supabase-admin";
 
 type ImportRow = {
   email?: string;
@@ -65,21 +66,24 @@ function safeEmail(email?: string) {
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const supabase = createRouteHandlerClient({ cookies });
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  const supabase = demoMode ? createAdminClient() : createRouteHandlerClient({ cookies });
   const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
 
   try {
-    const { data: userData } = await supabase.auth.getUser();
-    const currentUser = userData.user;
-    if (!currentUser) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
+    if (!demoMode) {
+      const { data: userData } = await (supabase as any).auth.getUser();
+      const currentUser = userData.user;
+      if (!currentUser) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
 
-    const cRes = await supabase.from("hunting_campaigns").select("id,created_by").eq("id", id).single();
-    if (cRes.error || !cRes.data) return NextResponse.json({ success: false, error: cRes.error?.message || "Campaign not found" }, { status: 404 });
-    const pr = await supabase.from("profiles").select("role").eq("user_id", currentUser.id).single();
-    const isAdmin = (pr.data as any)?.role === "admin";
-    if (!isAdmin && (cRes.data as any).created_by && (cRes.data as any).created_by !== currentUser.id) {
-      return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+      const cRes = await supabase.from("hunting_campaigns").select("id,created_by").eq("id", id).single();
+      if (cRes.error || !cRes.data) return NextResponse.json({ success: false, error: cRes.error?.message || "Campaign not found" }, { status: 404 });
+      const pr = await supabase.from("profiles").select("role").eq("user_id", currentUser.id).single();
+      const isAdmin = (pr.data as any)?.role === "admin";
+      if (!isAdmin && (cRes.data as any).created_by && (cRes.data as any).created_by !== currentUser.id) {
+        return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
+      }
     }
 
     const form = await req.formData();

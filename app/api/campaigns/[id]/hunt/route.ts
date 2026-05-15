@@ -36,10 +36,11 @@ type CampaignRow = {
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const isDev = process.env.NODE_ENV === "development";
-  const supabase = createRouteHandlerClient({ cookies });
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
   const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
-  const isInternal = !!internalSecret && internalHeader === internalSecret;
+  const isInternal = demoMode || (!!internalSecret && internalHeader === internalSecret);
+  const supabase = demoMode ? null : createRouteHandlerClient({ cookies });
 
   const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
@@ -56,9 +57,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
     admin = supabaseUrl && supabaseServiceKey ? createClient(supabaseUrl, supabaseServiceKey) : null;
+    const db = (admin || supabase) as any;
+    if (!db) return NextResponse.json({ success: false, error: "Missing Supabase configuration" }, { status: 500 });
 
-    const { data: userData } = await supabase.auth.getUser();
-    let currentUser = userData.user as any;
+    let currentUser: any = null;
+    if (demoMode) {
+      currentUser = { id: "demo", email: "demo@local" };
+    } else {
+      const { data: userData } = await (supabase as any).auth.getUser();
+      currentUser = userData.user as any;
+    }
     if (!currentUser && isInternal) {
       currentUser = { id: "internal", email: "internal@system" };
     }
@@ -67,7 +75,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     if (!currentUser) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
     const adminEmail = String(process.env.ADMIN_EMAIL || "").toLowerCase();
-    const cRes = await (admin || supabase)
+    const cRes = await db
       .from("hunting_campaigns")
       .select("id,name,status,titles,industries,locations,size_min,size_max,keywords,exclude_companies,daily_prospect_limit,min_ai_score,send_weekends,schedule_start,created_by")
       .eq("id", id)
@@ -80,7 +88,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     } else if (isInternal) {
       isAdmin = true;
     } else {
-      const pr = await supabase.from("profiles").select("role").eq("user_id", currentUser.id).single();
+      const pr = await (supabase as any).from("profiles").select("role").eq("user_id", currentUser.id).single();
       isAdmin = (pr.data as any)?.role === "admin";
       if (!isAdmin && adminEmail && String(currentUser.email || "").toLowerCase() === adminEmail) {
         isAdmin = true;
@@ -91,17 +99,17 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     if (!["active", "draft"].includes(String(c.status))) return NextResponse.json({ success: false, error: "Campaign not in runnable state" }, { status: 400 });
 
-    if (!isDev && !isInternal) {
-      const prSub = await supabase.from("profiles").select("subscription_status").eq("user_id", currentUser.id).single();
+    if (!demoMode && !isDev && !isInternal) {
+      const prSub = await (supabase as any).from("profiles").select("subscription_status").eq("user_id", currentUser.id).single();
       const tier = String((prSub.data as any)?.subscription_status || "free").toLowerCase();
       const monthlyLimit = tier === "paid" || tier === "pro" ? 10 : 2;
       const start = new Date();
       start.setDate(1);
       start.setHours(0, 0, 0, 0);
-      const ownCampaignsRes = await supabase.from("hunting_campaigns").select("id").eq("created_by", currentUser.id);
+      const ownCampaignsRes = await (supabase as any).from("hunting_campaigns").select("id").eq("created_by", currentUser.id);
       const ownIds = ((ownCampaignsRes.data || []) as { id: string }[]).map((x) => x.id);
       if (ownIds.length > 0) {
-        const huntsCountRes = await supabase
+        const huntsCountRes = await (supabase as any)
           .from("hunting_campaign_runs")
           .select("id", { count: "exact", head: true })
           .eq("run_type", "hunt")
@@ -174,12 +182,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       runStatus = "error";
       runSummary = String(e?.message || "Apollo request failed");
       try {
-        await supabase.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
+        await db.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
       } catch {}
       return NextResponse.json({ success: false, error: runSummary }, { status: 502 });
     }
 
-    const existingRes = await (admin || supabase)
+    const existingRes = await db
       .from("prospects")
       .select("id,name,company,email")
       .or(`campaign_id.eq.${id},source.eq.campaign:${id}`);
@@ -240,8 +248,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         campaign_id: id,
       };
       const insPayloadFinal = { ...insPayload, user_id: (isDev ? (currentUser.id || null) : currentUser.id) };
-      const insClient = admin || supabase;
-      const ins = await insClient.from("prospects").insert(insPayloadFinal).select("id").single();
+      const ins = await db.from("prospects").insert(insPayloadFinal).select("id").single();
       if (ins.error) continue;
       prospects_added += 1;
       if (aiScore != null && aiScore >= minScore) {
@@ -250,7 +257,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           const gen = await fetch(`${baseUrl}/api/generate-outreach`, { method: "POST", headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) }, body: JSON.stringify({ name, title: p.title || undefined, company, industry: p.organization?.industry || undefined, recent_activity: "", pain_points: "", source: `campaign:${id}`, prospect_id: ins.data?.id }) });
           if (gen.ok) {
             emails_generated += 1;
-            await (admin || supabase).from("prospects").update({ status: "email_ready" }).eq("id", ins.data?.id);
+            await db.from("prospects").update({ status: "email_ready" }).eq("id", ins.data?.id);
           }
         } catch {}
       }
@@ -268,14 +275,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return dt.toISOString();
     })();
 
-    const upd = await (admin || supabase)
+    const upd = await db
       .from("hunting_campaigns")
       .update({ found_count: (c.found_count || 0) + prospects_added, last_run_at: nowIso, schedule_start: next })
       .eq("id", id);
     if (upd.error) runStatus = "partial";
 
     runSummary = `prospects_found=${prospects_found}; prospects_added=${prospects_added}; high_scorers=${high_scorers}; emails_generated=${emails_generated}`;
-    await (admin || supabase)
+    await db
       .from("hunting_campaign_runs")
       .insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
 
@@ -284,7 +291,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     runStatus = "error";
     runSummary = String(err?.message || "Unknown error");
     try {
-      await (admin || supabase).from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
+      const db = (admin || supabase) as any;
+      if (db) await db.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
     } catch {}
     return NextResponse.json({ success: false, error: err?.message || "Hunt failed" }, { status: 500 });
   }

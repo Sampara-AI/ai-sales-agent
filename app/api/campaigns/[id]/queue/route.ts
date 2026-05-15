@@ -23,17 +23,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
 
-  const sessionClient = createRouteHandlerClient({ cookies });
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const admin = createAdminClient();
 
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
   const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
-  const isInternal = !!internalSecret && internalHeader === internalSecret;
+  const isInternal = demoMode || (!!internalSecret && internalHeader === internalSecret);
 
   try {
     let currentUserId: string | null = null;
     let isAdmin = false;
     if (!isInternal) {
+      const sessionClient = createRouteHandlerClient({ cookies });
       const { data: userData } = await sessionClient.auth.getUser();
       const user = userData.user;
       if (!user) return NextResponse.json({ success: false, error: "Unauthorized" }, { status: 401 });
@@ -77,4 +78,3 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ success: false, error: err?.message || "Queue lookup failed" }, { status: 500 });
   }
 }
-

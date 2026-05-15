@@ -4,6 +4,9 @@ import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { createAdminClient } from "@/lib/server/supabase-admin";
 
 export async function POST(req: Request) {
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (demoMode) return NextResponse.json({ success: true });
+
   const demoUser = String(process.env.DEMO_USERNAME || "").trim();
   const demoPass = String(process.env.DEMO_PASSWORD || "").trim();
   const demoEmail = String(process.env.DEMO_EVALUATOR_EMAIL || "").trim();
@@ -31,4 +34,3 @@ export async function POST(req: Request) {
 
   return NextResponse.json({ success: true });
 }
-

@@ -64,7 +64,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
   const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
-  const isInternal = !!internalSecret && internalHeader === internalSecret;
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  const isInternal = demoMode || (!!internalSecret && internalHeader === internalSecret);
   const body = await req.json().catch(() => ({} as any));
   const runNow = Boolean((body as any)?.run_now);
   const enqueueOnly = (body as any)?.enqueue_only === false ? false : true;

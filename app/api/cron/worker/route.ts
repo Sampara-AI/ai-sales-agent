@@ -10,6 +10,8 @@ function getBaseUrl(req: NextRequest) {
 }
 
 function isInternalRequest(req: NextRequest) {
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (demoMode) return true;
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
   const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
   return !!internalSecret && internalHeader === internalSecret;
@@ -204,4 +206,3 @@ export async function POST(req: NextRequest) {
     duration_ms: Date.now() - startedAt,
   });
 }
-

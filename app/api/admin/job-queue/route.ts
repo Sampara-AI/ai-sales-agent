@@ -5,12 +5,15 @@ import { createAdminClient } from "@/lib/server/supabase-admin";
 import { isAdminUser } from "@/lib/auth/admin-check";
 
 export async function GET() {
-  const sessionClient = createRouteHandlerClient({ cookies });
-  const { data: userData } = await sessionClient.auth.getUser();
-  const user = userData.user;
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const ok = await isAdminUser(sessionClient as any, user.id);
-  if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (!demoMode) {
+    const sessionClient = createRouteHandlerClient({ cookies });
+    const { data: userData } = await sessionClient.auth.getUser();
+    const user = userData.user;
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ok = await isAdminUser(sessionClient as any, user.id);
+    if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const admin = createAdminClient();
   const [queued, running, succeeded, dead] = await Promise.all([
@@ -34,12 +37,15 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const sessionClient = createRouteHandlerClient({ cookies });
-  const { data: userData } = await sessionClient.auth.getUser();
-  const user = userData.user;
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const ok = await isAdminUser(sessionClient as any, user.id);
-  if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (!demoMode) {
+    const sessionClient = createRouteHandlerClient({ cookies });
+    const { data: userData } = await sessionClient.auth.getUser();
+    const user = userData.user;
+    if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ok = await isAdminUser(sessionClient as any, user.id);
+    if (!ok) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
 
   const body = await req.json().catch(() => ({}));
   const action = String((body as any)?.action || "").trim();
@@ -69,4 +75,3 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ error: "Unknown action" }, { status: 400 });
 }
-

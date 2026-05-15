@@ -64,6 +64,7 @@ const LS_KEY = "campaign_create_v1";
 
 export default function CreateCampaignPage() {
   const router = useRouter();
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const [step, setStep] = useState<Step>(1);
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -161,12 +162,14 @@ export default function CreateCampaignPage() {
     setSubmitError(null);
     setBanner(null);
     setSubmitting(true);
-    const s = createClientComponentClient();
     let createdBy: string | null = null;
-    try {
-      const { data } = await s.auth.getSession();
-      createdBy = data?.session?.user?.id || null;
-    } catch {}
+    if (!demoMode) {
+      const s = createClientComponentClient();
+      try {
+        const { data } = await s.auth.getSession();
+        createdBy = data?.session?.user?.id || null;
+      } catch {}
+    }
     const payload: any = {
       name: data.name,
       description: data.description || "",
@@ -188,7 +191,7 @@ export default function CreateCampaignPage() {
       schedule_start: status === "scheduled" ? data.scheduleStart || null : null,
       created_by: createdBy,
     };
-    if (!createdBy) { setSubmitError("Please sign in again to save"); setSubmitting(false); return; }
+    if (!demoMode && !createdBy) { setSubmitError("Please sign in again to save"); setSubmitting(false); return; }
     const apiRes = await fetch("/api/campaigns/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
     if (!apiRes.ok) { const j = await apiRes.json().catch(() => ({})); setSubmitError(j?.error || "Failed to save"); setSubmitting(false); return; }
     const j = await apiRes.json();
