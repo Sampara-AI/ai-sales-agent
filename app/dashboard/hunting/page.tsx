@@ -1,10 +1,107 @@
 import { Nunito_Sans } from "next/font/google";
 import { createAdminClient } from "@/lib/server/supabase-admin";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 
 export const dynamic = "force-dynamic";
 
 const nunito = Nunito_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "700", "800"] });
+
+async function sendDemoEmail(formData: FormData) {
+  "use server";
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (!demoMode) redirect("/dashboard/hunting");
+
+  const toEmail = String(formData.get("to_email") || "").trim().toLowerCase();
+  const name = String(formData.get("name") || "").trim() || "Demo Recipient";
+  const title = String(formData.get("title") || "").trim() || "Founder";
+  const companyInput = String(formData.get("company") || "").trim();
+  if (!/[^@\s]+@[^@\s]+\.[^@\s]+/.test(toEmail)) redirect("/dashboard/hunting?demo=invalid_email");
+
+  const domain = toEmail.includes("@") ? toEmail.split("@")[1]?.trim().toLowerCase() : "";
+  const company = companyInput || (domain ? domain.replace(/^www\./, "") : "Demo Company");
+
+  const admin = createAdminClient();
+  let campaignId: string | null = null;
+  try {
+    const existing = await admin.from("hunting_campaigns").select("id").order("created_at", { ascending: false }).limit(1);
+    campaignId = String((existing.data || [])[0]?.id || "") || null;
+  } catch {}
+  if (!campaignId) {
+    const created = await admin
+      .from("hunting_campaigns")
+      .insert({
+        name: "Demo Campaign",
+        description: "Demo campaign (auto-created)",
+        titles: [title],
+        industries: [],
+        locations: [],
+        keywords: [],
+        exclude_companies: [],
+        daily_prospect_limit: 20,
+        min_ai_score: 0,
+        email_daily_limit: 50,
+        send_weekends: true,
+        followup_days: [3, 7, 14],
+        max_followups: 3,
+        require_manual_review: false,
+        status: "active",
+        created_by: "demo",
+      })
+      .select("id")
+      .single();
+    campaignId = String((created.data as any)?.id || "") || null;
+  }
+  if (!campaignId) redirect("/dashboard/hunting?demo=campaign_failed");
+
+  const prospectIns = await admin
+    .from("prospects")
+    .insert({
+      campaign_id: campaignId,
+      name,
+      title,
+      company,
+      domain: domain || null,
+      industry: null,
+      linkedin_url: null,
+      email: toEmail,
+      status: "email_ready",
+      source: "demo",
+      notes: "demo recipient",
+      recent_activity: domain ? `Imported domain: ${domain}` : null,
+    })
+    .select("id")
+    .single();
+  const prospectId = String((prospectIns.data as any)?.id || "").trim();
+  if (!prospectId) redirect("/dashboard/hunting?demo=prospect_failed");
+
+  const h = await headers();
+  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
+  const proto = h.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+  const baseUrl = `${proto}://${host}`;
+
+  const genRes = await fetch(`${baseUrl}/api/generate-outreach`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prospect_id: prospectId, enqueue_only: false }),
+    cache: "no-store",
+  });
+  const genJson = await genRes.json().catch(() => ({} as any));
+  if (!genRes.ok) redirect("/dashboard/hunting?demo=generate_failed");
+  const subject = String((genJson as any)?.subject_lines?.[0] || `Quick question about ${company}`).trim();
+  const body = String((genJson as any)?.email_body || "").trim();
+  if (!body) redirect("/dashboard/hunting?demo=generate_failed");
+
+  const sendRes = await fetch(`${baseUrl}/api/send-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ prospect_id: prospectId, to_email: toEmail, subject, body, enqueue_only: false, run_now: true }),
+    cache: "no-store",
+  });
+  if (!sendRes.ok) redirect("/dashboard/hunting?demo=send_failed");
+
+  redirect("/dashboard/hunting?demo=sent");
+}
 
 async function createCampaign(formData: FormData) {
   "use server";
@@ -45,7 +142,7 @@ async function createCampaign(formData: FormData) {
   redirect("/dashboard/hunting");
 }
 
-export default async function HuntingDashboardPage() {
+export default async function HuntingDashboardPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const admin = createAdminClient();
   const now = new Date();
   const start = new Date(now);
@@ -70,10 +167,24 @@ export default async function HuntingDashboardPage() {
 
   const runs = (runsRes.data || []) as any[];
   const prospects = (prospectsRes.data || []) as any[];
+  const demoNotice = typeof searchParams?.demo === "string" ? searchParams?.demo : "";
 
   return (
     <div className={`${nunito.className} min-h-screen bg-slate-50 text-slate-900`}>
       <div className="mx-auto max-w-7xl px-6 py-8">
+        {demoNotice && (
+          <div className={`mb-6 rounded-2xl border p-4 text-sm ${demoNotice === "sent" ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+            {demoNotice === "sent"
+              ? "Demo email sent. Check your inbox."
+              : demoNotice === "invalid_email"
+                ? "Enter a valid email address."
+                : demoNotice === "generate_failed"
+                  ? "Could not generate outreach. Check GROQ_API_KEY."
+                  : demoNotice === "send_failed"
+                    ? "Could not send email. Check RESEND_API_KEY and verified sender."
+                    : "Demo action failed."}
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-xs text-slate-500">Active Campaigns</div>
@@ -227,6 +338,19 @@ export default async function HuntingDashboardPage() {
           </div>
 
           <div className="space-y-6">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="text-sm font-semibold text-slate-900">Quick Demo: Send yourself an outreach email</div>
+              <form action={sendDemoEmail} className="mt-4 space-y-3">
+                <input name="to_email" placeholder="Your email (to receive the demo)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
+                <input name="name" placeholder="Your name (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
+                <input name="title" placeholder="Your title (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
+                <input name="company" placeholder="Company (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
+                <button type="submit" className="w-full rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                  Generate + Send
+                </button>
+              </form>
+              <div className="mt-3 text-xs text-slate-500">Uses live AI generation + sends via Resend.</div>
+            </div>
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="text-sm font-semibold text-slate-900">Create Campaign</div>
               <form action={createCampaign} className="mt-4 space-y-3">

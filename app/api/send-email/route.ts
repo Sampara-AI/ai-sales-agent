@@ -81,20 +81,24 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ success: false, error: `Suppressed: ${reason}` }, { status: 400 });
       }
     } catch {}
-    const last = p?.last_email_sent || p?.contacted_at;
-    if (last) {
-      const threeDaysMs = 1000 * 60 * 60 * 24 * 3;
-      if (Date.now() - new Date(last).getTime() < threeDaysMs) return NextResponse.json({ success: false, error: "Prospect was recently contacted" }, { status: 429 });
+    if (!demoMode) {
+      const last = p?.last_email_sent || p?.contacted_at;
+      if (last) {
+        const threeDaysMs = 1000 * 60 * 60 * 24 * 3;
+        if (Date.now() - new Date(last).getTime() < threeDaysMs) return NextResponse.json({ success: false, error: "Prospect was recently contacted" }, { status: 429 });
+      }
     }
 
-    const start = new Date();
-    start.setHours(0, 0, 0, 0);
-    const sentTodayRes = await supabase
-      .from("email_campaigns")
-      .select("id", { count: "exact", head: true })
-      .gte("sent_at", start.toISOString());
-    const sentToday = sentTodayRes.count || 0;
-    if (sentToday >= 100) return NextResponse.json({ success: false, error: "Daily email limit reached. Upgrade Resend or try tomorrow." }, { status: 429 });
+    if (!demoMode) {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const sentTodayRes = await supabase
+        .from("email_campaigns")
+        .select("id", { count: "exact", head: true })
+        .gte("sent_at", start.toISOString());
+      const sentToday = sentTodayRes.count || 0;
+      if (sentToday >= 100) return NextResponse.json({ success: false, error: "Daily email limit reached. Upgrade Resend or try tomorrow." }, { status: 429 });
+    }
 
     const html = `
       <div style="background:#0b0b0b;color:#ededed;font-family:Inter,Arial,sans-serif;padding:24px">
