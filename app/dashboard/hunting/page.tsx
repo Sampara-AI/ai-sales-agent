@@ -108,7 +108,7 @@ async function createCampaign(formData: FormData) {
   const admin = createAdminClient();
 
   const rawName = String(formData.get("name") || "").trim();
-  if (!rawName) redirect("/dashboard/hunting");
+  if (!rawName) redirect("/dashboard/hunting?created=missing_name");
 
   const parseList = (v: FormDataEntryValue | null) =>
     String(v || "")
@@ -120,7 +120,7 @@ async function createCampaign(formData: FormData) {
   const dailyLimit = Math.max(1, Math.min(500, Number(formData.get("daily_prospect_limit") || 20)));
   const emailDaily = Math.max(1, Math.min(500, Number(formData.get("email_daily_limit") || 10)));
 
-  await admin.from("hunting_campaigns").insert({
+  const ins = await admin.from("hunting_campaigns").insert({
     name: rawName,
     description: String(formData.get("description") || ""),
     titles: parseList(formData.get("titles")),
@@ -137,9 +137,10 @@ async function createCampaign(formData: FormData) {
     require_manual_review: requireManual,
     status: "active",
     created_by: "demo",
-  });
+  }).select("id").single();
 
-  redirect("/dashboard/hunting");
+  if (ins.error) redirect(`/dashboard/hunting?created=failed`);
+  redirect(`/dashboard/hunting?created=ok`);
 }
 
 export default async function HuntingDashboardPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
@@ -168,10 +169,20 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
   const runs = (runsRes.data || []) as any[];
   const prospects = (prospectsRes.data || []) as any[];
   const demoNotice = typeof searchParams?.demo === "string" ? searchParams?.demo : "";
+  const createdNotice = typeof searchParams?.created === "string" ? searchParams?.created : "";
 
   return (
     <div className={`${nunito.className} min-h-screen bg-slate-50 text-slate-900`}>
       <div className="mx-auto max-w-7xl px-6 py-8">
+        {createdNotice && (
+          <div className={`mb-6 rounded-2xl border p-4 text-sm ${createdNotice === "ok" ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+            {createdNotice === "ok"
+              ? "Campaign created."
+              : createdNotice === "missing_name"
+                ? "Campaign name is required."
+                : "Could not create campaign. Check Supabase schema (hunting_campaigns) and service role key."}
+          </div>
+        )}
         {demoNotice && (
           <div className={`mb-6 rounded-2xl border p-4 text-sm ${demoNotice === "sent" ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
             {demoNotice === "sent"
@@ -354,7 +365,7 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="text-sm font-semibold text-slate-900">Create Campaign</div>
               <form action={createCampaign} className="mt-4 space-y-3">
-                <input name="name" placeholder="Campaign name" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
+                <input name="name" placeholder="Campaign name" required className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
                 <input name="titles" placeholder="Titles (comma-separated)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
                 <input name="industries" placeholder="Industries (comma-separated)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
                 <input name="locations" placeholder="Locations (comma-separated)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
