@@ -12,6 +12,7 @@ function Sidebar() {
   const { user } = useAuth();
   const { isAdmin } = useAuth();
   const isDev = process.env.NODE_ENV === "development";
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const [activeCampaigns, setActiveCampaigns] = useState(0);
   useEffect(() => {
     const load = async () => {
@@ -20,7 +21,7 @@ function Sidebar() {
     };
     load();
   }, [supabase]);
-  if (!user && !isDev) return null;
+  if (!user && !isDev && !demoMode) return null;
   return (
     <aside className="w-full max-w-[240px] rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <div className="space-y-2 text-sm">
