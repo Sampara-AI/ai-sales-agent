@@ -18,13 +18,17 @@ function LoginForm() {
   const onSubmit = async () => {
     setError(null);
     setLoading(true);
+    const next = search?.get("next") || "/dashboard/hunting";
+    if (demoMode) {
+      if (typeof window !== "undefined") window.location.assign(next);
+      return;
+    }
     if (!demoMode) {
       const res = await signIn(email, password);
       setLoading(false);
       if (res.error) { setError(res.error); return; }
     }
-    const next = search?.get("next");
-    router.replace(next || "/dashboard/hunting");
+    router.replace(next);
   };
   return (
     <div className="mx-auto w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
