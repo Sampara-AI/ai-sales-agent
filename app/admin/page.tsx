@@ -285,6 +285,7 @@ function AdminContent() {
           <div className="mt-3 flex flex-wrap gap-2">
             <a href="/dashboard/hunting" className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white">Go to Hunting (CSV + Run + Send)</a>
             <a href="/dashboard/hunting#quick-demo" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">Quick Demo (Send to yourself)</a>
+            <a href="#knowledge" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">Upload Knowledge Docs</a>
           </div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
@@ -400,7 +401,7 @@ function AdminContent() {
               </div>
             </div>
 
-            <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div id="knowledge" className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="text-sm font-semibold text-slate-800">Knowledge Base (RAG)</div>
               <div className="mt-2 text-xs text-slate-500">Upload product spec sheets, FAQs, and offering docs to ground inbound reply handling.</div>
               {knowledgeBanner && <div className="mt-3 rounded border border-slate-200 bg-white p-2 text-xs text-slate-800">{knowledgeBanner}</div>}

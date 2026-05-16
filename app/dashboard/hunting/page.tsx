@@ -139,7 +139,11 @@ async function createCampaign(formData: FormData) {
     created_by: "demo",
   }).select("id").single();
 
-  if (ins.error) redirect(`/dashboard/hunting?created=failed`);
+  if (ins.error) {
+    const code = encodeURIComponent(String((ins.error as any)?.code || ""));
+    const msg = encodeURIComponent(String(ins.error.message || "").slice(0, 160));
+    redirect(`/dashboard/hunting?created=failed&code=${code}&msg=${msg}`);
+  }
   redirect(`/dashboard/hunting?created=ok`);
 }
 
@@ -170,21 +174,36 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
   const prospects = (prospectsRes.data || []) as any[];
   const demoNotice = typeof searchParams?.demo === "string" ? searchParams?.demo : "";
   const createdNotice = typeof searchParams?.created === "string" ? searchParams?.created : "";
+  const createdCode = typeof searchParams?.code === "string" ? searchParams?.code : "";
+  const createdMsg = typeof searchParams?.msg === "string" ? searchParams?.msg : "";
   const importNotice = typeof searchParams?.import === "string" ? searchParams?.import : "";
   const huntNotice = typeof searchParams?.hunt === "string" ? searchParams?.hunt : "";
   const sendNotice = typeof searchParams?.send === "string" ? searchParams?.send : "";
   const followupNotice = typeof searchParams?.followup === "string" ? searchParams?.followup : "";
 
+  const campaignsError = (campaignsRes as any)?.error;
+  const campaignsErrCode = String(campaignsError?.code || "");
+  const campaignsErrMsg = String(campaignsError?.message || "");
+
   return (
     <div className={`${nunito.className} min-h-screen bg-slate-50 text-slate-900`}>
       <div className="mx-auto max-w-7xl px-6 py-8">
+        {(campaignsErrCode || campaignsErrMsg) && (
+          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-semibold">Database not initialized for the demo workflow</div>
+            <div className="mt-1">Campaign create/import requires Supabase tables like hunting_campaigns and prospects.</div>
+            <div className="mt-2 text-xs">Error: {campaignsErrCode ? `${campaignsErrCode} ` : ""}{campaignsErrMsg || "unknown"}</div>
+          </div>
+        )}
         {createdNotice && (
           <div className={`mb-6 rounded-2xl border p-4 text-sm ${createdNotice === "ok" ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
             {createdNotice === "ok"
               ? "Campaign created."
               : createdNotice === "missing_name"
                 ? "Campaign name is required."
-                : "Could not create campaign. Check Supabase schema (hunting_campaigns) and service role key."}
+                : createdCode === "42P01"
+                  ? "Could not create campaign: hunting_campaigns table is missing in Supabase."
+                  : `Could not create campaign. ${createdCode ? `(${createdCode}) ` : ""}${createdMsg || ""}`.trim()}
           </div>
         )}
         {demoNotice && (
@@ -208,6 +227,12 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
             {followupNotice && <div>Followups: {followupNotice === "failed" ? "failed" : `${followupNotice} followups enqueued`}</div>}
           </div>
         )}
+
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
+          <div className="font-semibold text-slate-900">Demo steps</div>
+          <div className="mt-1">1) Create campaign → 2) Upload CSV (inside the campaign card) → 3) Run Hunt → 4) Send Batch</div>
+          <div className="mt-2">Knowledge upload: go to <a className="underline" href="/admin#knowledge">Admin → Knowledge Base</a>.</div>
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="text-xs text-slate-500">Active Campaigns</div>

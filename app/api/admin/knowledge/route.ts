@@ -69,6 +69,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  const wantsHtml = (req.headers.get("accept") || "").includes("text/html");
   if (!demoMode) {
     const sessionClient = createRouteHandlerClient({ cookies });
     const { data: userData } = await sessionClient.auth.getUser();
@@ -79,22 +80,32 @@ export async function POST(req: NextRequest) {
   }
 
   const apiKey = String(process.env.OPENAI_API_KEY || "").trim();
-  if (!apiKey) return NextResponse.json({ error: "Missing OPENAI_API_KEY (required for embeddings)" }, { status: 500 });
+  if (!apiKey) {
+    if (wantsHtml) return NextResponse.redirect(new URL(`/admin#knowledge`, req.url), 303);
+    return NextResponse.json({ error: "Missing OPENAI_API_KEY (required for embeddings)" }, { status: 500 });
+  }
 
   const form = await req.formData();
   const file = form.get("file");
   const source = String(form.get("source") || "").trim() || null;
-  if (!file || !(file instanceof File)) return NextResponse.json({ error: "Missing file" }, { status: 400 });
+  if (!file || !(file instanceof File)) {
+    if (wantsHtml) return NextResponse.redirect(new URL(`/admin#knowledge`, req.url), 303);
+    return NextResponse.json({ error: "Missing file" }, { status: 400 });
+  }
 
   let text = "";
   try {
     text = await extractTextFromFile(file);
   } catch (e: any) {
+    if (wantsHtml) return NextResponse.redirect(new URL(`/admin#knowledge`, req.url), 303);
     return NextResponse.json({ error: e?.message || "Failed to parse document" }, { status: 400 });
   }
 
   const chunks = chunkText(text);
-  if (chunks.length === 0) return NextResponse.json({ error: "No text extracted from document" }, { status: 400 });
+  if (chunks.length === 0) {
+    if (wantsHtml) return NextResponse.redirect(new URL(`/admin#knowledge`, req.url), 303);
+    return NextResponse.json({ error: "No text extracted from document" }, { status: 400 });
+  }
 
   const admin = createAdminClient();
   const docIns = await admin
@@ -102,7 +113,10 @@ export async function POST(req: NextRequest) {
     .insert({ name: file.name || "document", source, content_type: (file as any).type || null, content_text: text })
     .select("id")
     .single();
-  if (docIns.error) return NextResponse.json({ error: docIns.error.message }, { status: 500 });
+  if (docIns.error) {
+    if (wantsHtml) return NextResponse.redirect(new URL(`/admin#knowledge`, req.url), 303);
+    return NextResponse.json({ error: docIns.error.message }, { status: 500 });
+  }
   const documentId = String((docIns.data as any)?.id || "");
 
   const openai = new OpenAI({ apiKey });
@@ -117,7 +131,11 @@ export async function POST(req: NextRequest) {
     embedding: `[${(vectors[idx] as number[]).join(",")}]`,
   }));
   const ins = await admin.from("knowledge_chunks").insert(rows);
-  if (ins.error) return NextResponse.json({ error: ins.error.message }, { status: 500 });
+  if (ins.error) {
+    if (wantsHtml) return NextResponse.redirect(new URL(`/admin#knowledge`, req.url), 303);
+    return NextResponse.json({ error: ins.error.message }, { status: 500 });
+  }
 
+  if (wantsHtml) return NextResponse.redirect(new URL(`/admin#knowledge`, req.url), 303);
   return NextResponse.json({ success: true, document_id: documentId, chunks: chunks.length });
 }
