@@ -2,6 +2,7 @@ import { Nunito_Sans } from "next/font/google";
 import { createAdminClient } from "@/lib/server/supabase-admin";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
+import CampaignCsvImporter from "./CampaignCsvImporter";
 
 export const dynamic = "force-dynamic";
 
@@ -411,7 +412,7 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                         </a>
                         <form action={processCsvCampaign}>
                           <input type="hidden" name="campaign_id" value={String(c.id)} />
-                          <button type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                          <button id={`process-${String(c.id)}`} type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
                             Enrich + Draft + Auto-send
                           </button>
                         </form>
@@ -435,16 +436,7 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                         </a>
                       </div>
 
-                      <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-                        <div className="text-xs font-semibold text-slate-700">Import CSV</div>
-                        <form method="post" encType="multipart/form-data" action={`/api/campaigns/${String(c.id)}/import`} className="mt-2 flex flex-wrap items-center gap-2">
-                          <input name="file" type="file" accept=".csv" className="text-sm" required />
-                          <button type="submit" className="rounded-xl border border-slate-200 bg-slate-900 px-3 py-2 text-sm text-white">
-                            Upload
-                          </button>
-                        </form>
-                        <div className="mt-2 text-xs text-slate-500">Headers supported: domain,email,name,title,company,industry,linkedin_url,notes</div>
-                      </div>
+                      <CampaignCsvImporter campaignId={String(c.id)} />
                     </div>
                   ))
                 )}
@@ -457,6 +449,12 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                   <div className="text-sm font-semibold text-slate-900">Campaign Prospects</div>
                   <div className="text-xs text-slate-500">Campaign: {selectedCampaignId}</div>
                 </div>
+            {importNotice && (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <div className="font-semibold">Next → click “Enrich + Draft + Auto-send”</div>
+                <div className="mt-1 text-xs text-slate-500">This runs domain enrichment, drafts emails, and sends automatically (no manual steps).</div>
+              </div>
+            )}
                 <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 text-slate-600">
@@ -571,7 +569,7 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
 
           <div className="space-y-6">
             <div id="quick-demo" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold text-slate-900">Quick Demo: Send yourself an outreach email</div>
+              <div className="text-sm font-semibold text-slate-900">Send to a prospect</div>
               <form action={sendDemoEmail} className="mt-4 space-y-3">
                 <input name="to_email" placeholder="Your email (to receive the demo)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
                 <input name="name" placeholder="Your name (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
