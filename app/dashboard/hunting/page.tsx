@@ -35,6 +35,92 @@ async function insertHuntingCampaign(admin: ReturnType<typeof createAdminClient>
   return { data: null, error: lastErr };
 }
 
+async function processCsvCampaign(formData: FormData) {
+  "use server";
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (!demoMode) redirect("/dashboard/hunting");
+  const campaignId = String(formData.get("campaign_id") || "").trim();
+  if (!campaignId) redirect("/dashboard/hunting");
+
+  const admin = createAdminClient();
+  const pRes = await admin
+    .from("prospects")
+    .select("id,email,domain,status")
+    .eq("campaign_id", campaignId)
+    .order("created_at", { ascending: false })
+    .limit(50);
+  const prospects = (pRes.data || []) as Array<{ id: string; email: string | null; domain: string | null; status: string | null }>;
+  if (prospects.length === 0) redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&process=0`);
+
+  const h = await headers();
+  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
+  const proto = h.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+  const baseUrl = `${proto}://${host}`;
+  const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
+
+  let enriched = 0;
+  let drafted = 0;
+  let sent = 0;
+  let failed = 0;
+  let skipped = 0;
+
+  for (const p of prospects) {
+    const toEmail = String(p.email || "").trim().toLowerCase();
+    if (!/[^@\s]+@[^@\s]+\.[^@\s]+/.test(toEmail)) {
+      skipped++;
+      continue;
+    }
+
+    try {
+      const enr = await fetch(`${baseUrl}/api/prospects/${encodeURIComponent(p.id)}/enrich-domain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
+        body: JSON.stringify({ run_now: true, enqueue_only: false }),
+        cache: "no-store",
+      });
+      if (enr.ok) enriched++;
+    } catch {}
+
+    let subject = "";
+    let body = "";
+    try {
+      const genRes = await fetch(`${baseUrl}/api/generate-outreach`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
+        body: JSON.stringify({ prospect_id: p.id, enqueue_only: false }),
+        cache: "no-store",
+      });
+      const genJson = await genRes.json().catch(() => ({} as any));
+      if (!genRes.ok) throw new Error("generate failed");
+      subject = String((genJson as any)?.subject_lines?.[0] || "").trim();
+      body = String((genJson as any)?.email_body || "").trim();
+      if (!subject) subject = "Quick question";
+      if (!body) throw new Error("empty body");
+      drafted++;
+    } catch {
+      failed++;
+      continue;
+    }
+
+    try {
+      const sendRes = await fetch(`${baseUrl}/api/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
+        body: JSON.stringify({ prospect_id: p.id, to_email: toEmail, subject, body, enqueue_only: false, run_now: true }),
+        cache: "no-store",
+      });
+      if (!sendRes.ok) throw new Error("send failed");
+      sent++;
+    } catch {
+      failed++;
+    }
+  }
+
+  redirect(
+    `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&process=${encodeURIComponent(String(sent))}&enriched=${encodeURIComponent(String(enriched))}&drafted=${encodeURIComponent(String(drafted))}&skipped=${encodeURIComponent(String(skipped))}&failed=${encodeURIComponent(String(failed))}`,
+  );
+}
+
 async function sendDemoEmail(formData: FormData) {
   "use server";
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
@@ -177,13 +263,24 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
   const start = new Date(now);
   start.setHours(0, 0, 0, 0);
 
-  const [campaignsRes, emailsRes, repliesRes, meetingsRes, runsRes, prospectsRes] = await Promise.all([
+  const selectedCampaignIdRaw = typeof searchParams?.campaign === "string" ? searchParams?.campaign : "";
+  const selectedCampaignId = selectedCampaignIdRaw.trim();
+
+  const [campaignsRes, emailsRes, repliesRes, meetingsRes, runsRes, prospectsRes, selectedProspectsRes] = await Promise.all([
     admin.from("hunting_campaigns").select("id,name,status,found_count,contacted_count,replied_count,booked_count,last_run_at,created_at").order("created_at", { ascending: false }),
     admin.from("email_campaigns").select("id", { count: "exact", head: true }).gte("sent_at", start.toISOString()),
     admin.from("prospects").select("id", { count: "exact", head: true }).eq("replied", true),
     admin.from("prospects").select("id", { count: "exact", head: true }).eq("meeting_booked", true),
     admin.from("hunting_campaign_runs").select("id,created_at,campaign_id,run_type,result_summary,status").order("created_at", { ascending: false }).limit(50),
     admin.from("prospects").select("id,created_at,name,title,company,email,ai_score,status,last_email_sent,replied,meeting_booked,source,campaign_id").order("created_at", { ascending: false }).limit(100),
+    selectedCampaignId
+      ? admin
+          .from("prospects")
+          .select("id,created_at,name,title,company,email,domain,status,ai_score,last_email_sent,replied,meeting_booked,source,recent_activity")
+          .eq("campaign_id", selectedCampaignId)
+          .order("created_at", { ascending: false })
+          .limit(250)
+      : Promise.resolve({ data: [], error: null } as any),
   ]);
 
   const campaigns = (campaignsRes.data || []) as any[];
@@ -196,6 +293,7 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
 
   const runs = (runsRes.data || []) as any[];
   const prospects = (prospectsRes.data || []) as any[];
+  const selectedProspects = (selectedProspectsRes.data || []) as any[];
   const demoNotice = typeof searchParams?.demo === "string" ? searchParams?.demo : "";
   const createdNotice = typeof searchParams?.created === "string" ? searchParams?.created : "";
   const createdCode = typeof searchParams?.code === "string" ? searchParams?.code : "";
@@ -204,6 +302,11 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
   const huntNotice = typeof searchParams?.hunt === "string" ? searchParams?.hunt : "";
   const sendNotice = typeof searchParams?.send === "string" ? searchParams?.send : "";
   const followupNotice = typeof searchParams?.followup === "string" ? searchParams?.followup : "";
+  const processNotice = typeof searchParams?.process === "string" ? searchParams?.process : "";
+  const processEnriched = typeof searchParams?.enriched === "string" ? searchParams?.enriched : "";
+  const processDrafted = typeof searchParams?.drafted === "string" ? searchParams?.drafted : "";
+  const processSkipped = typeof searchParams?.skipped === "string" ? searchParams?.skipped : "";
+  const processFailed = typeof searchParams?.failed === "string" ? searchParams?.failed : "";
 
   const campaignsError = (campaignsRes as any)?.error;
   const campaignsErrCode = String(campaignsError?.code || "");
@@ -251,11 +354,16 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
             {followupNotice && <div>Followups: {followupNotice === "failed" ? "failed" : `${followupNotice} followups enqueued`}</div>}
           </div>
         )}
+        {processNotice && (
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
+            <div>Processed campaign: sent {processNotice}{processEnriched ? ` · enriched ${processEnriched}` : ""}{processDrafted ? ` · drafted ${processDrafted}` : ""}{processSkipped ? ` · skipped ${processSkipped}` : ""}{processFailed ? ` · failed ${processFailed}` : ""}</div>
+          </div>
+        )}
 
         <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
           <div className="font-semibold text-slate-900">Demo steps</div>
-          <div className="mt-1">1) Create campaign → 2) Upload CSV (inside the campaign card) → 3) Run Hunt → 4) Send Batch</div>
-          <div className="mt-2">Knowledge upload: go to <a className="underline" href="/admin#knowledge">Admin → Knowledge Base</a>.</div>
+          <div className="mt-1">1) Create campaign → 2) Upload CSV (inside the campaign card) → 3) Enrich + Draft + Auto-send</div>
+          <div className="mt-2">Knowledge upload: <a className="underline" href="/admin#knowledge">Admin → Knowledge Base</a>.</div>
         </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
@@ -298,9 +406,18 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                       </div>
 
                       <div className="mt-3 flex flex-wrap items-center gap-2">
+                        <a href={`/dashboard/hunting?campaign=${encodeURIComponent(String(c.id))}`} className="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">
+                          Open Workflow
+                        </a>
+                        <form action={processCsvCampaign}>
+                          <input type="hidden" name="campaign_id" value={String(c.id)} />
+                          <button type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                            Enrich + Draft + Auto-send
+                          </button>
+                        </form>
                         <form method="post" action={`/api/campaigns/${String(c.id)}/hunt`}>
-                          <button type="submit" className="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">
-                            Run Hunt
+                          <button type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
+                            Discover (Apollo)
                           </button>
                         </form>
                         <form method="post" action={`/api/campaigns/${String(c.id)}/send`}>
@@ -333,6 +450,49 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                 )}
               </div>
             </div>
+
+            {selectedCampaignId && (
+              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-900">Campaign Prospects</div>
+                  <div className="text-xs text-slate-500">Campaign: {selectedCampaignId}</div>
+                </div>
+                <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th className="p-2 text-left">Name</th>
+                        <th className="p-2 text-left">Company</th>
+                        <th className="p-2 text-left">Email</th>
+                        <th className="p-2 text-left">Domain</th>
+                        <th className="p-2 text-left">Status</th>
+                        <th className="p-2 text-left">Last Email</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedProspects.length === 0 ? (
+                        <tr>
+                          <td className="p-2 text-slate-600" colSpan={6}>
+                            No prospects in this campaign yet. Upload CSV above.
+                          </td>
+                        </tr>
+                      ) : (
+                        selectedProspects.map((p) => (
+                          <tr key={String(p.id)} className="border-t border-slate-100">
+                            <td className="p-2">{String(p.name || "—")}</td>
+                            <td className="p-2">{String(p.company || "—")}</td>
+                            <td className="p-2">{String(p.email || "—")}</td>
+                            <td className="p-2">{String(p.domain || "—")}</td>
+                            <td className="p-2">{String(p.status || "—")}</td>
+                            <td className="p-2">{p.last_email_sent ? new Date(String(p.last_email_sent)).toLocaleDateString() : "—"}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
 
             <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="text-sm font-semibold text-slate-900">Recent Activity</div>

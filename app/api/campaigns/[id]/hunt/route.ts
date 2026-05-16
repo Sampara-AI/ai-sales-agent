@@ -141,10 +141,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     let people: ApolloPerson[] = [];
     if (!apolloKey) {
-      return NextResponse.json(
-        { success: false, error: "APOLLO_API_KEY is not configured. Add it to your environment variables to fetch real prospects." },
-        { status: 500 },
-      );
+      if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?hunt=failed&campaign=${encodeURIComponent(id)}`, req.url), 303);
+      return NextResponse.json({ success: false, error: "APOLLO_API_KEY is not configured. Add it to your environment variables to fetch real prospects." }, { status: 500 });
     }
 
     const industriesLookLikeIds = industries.every((x) => /^[0-9a-f-]{16,}$/i.test(String(x)));
@@ -186,6 +184,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       try {
         await db.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
       } catch {}
+      if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?hunt=failed&campaign=${encodeURIComponent(id)}`, req.url), 303);
       return NextResponse.json({ success: false, error: runSummary }, { status: 502 });
     }
 
