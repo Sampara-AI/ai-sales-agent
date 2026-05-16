@@ -8,6 +8,28 @@ export const dynamic = "force-dynamic";
 const nunito = Nunito_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "700", "800"] });
 const demoUserId = "00000000-0000-0000-0000-000000000001";
 
+async function insertHuntingCampaign(admin: ReturnType<typeof createAdminClient>, initialPayload: Record<string, any>) {
+  let payload = { ...initialPayload };
+  let lastErr: any = null;
+  for (let i = 0; i < 12; i++) {
+    const res = await admin.from("hunting_campaigns").insert(payload).select("id").single();
+    if (!res.error) return res;
+    lastErr = res.error;
+    const msg = String(res.error.message || "");
+    const m =
+      msg.match(/Could not find the '([^']+)' column of 'hunting_campaigns'/) ||
+      msg.match(/column \"([^\"]+)\" of relation \"hunting_campaigns\" does not exist/i) ||
+      msg.match(/column \"([^\"]+)\" does not exist/i);
+    const missing = m?.[1];
+    if (missing && Object.prototype.hasOwnProperty.call(payload, missing)) {
+      delete (payload as any)[missing];
+      continue;
+    }
+    break;
+  }
+  return { data: null, error: lastErr };
+}
+
 async function sendDemoEmail(formData: FormData) {
   "use server";
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
@@ -29,28 +51,24 @@ async function sendDemoEmail(formData: FormData) {
     campaignId = String((existing.data || [])[0]?.id || "") || null;
   } catch {}
   if (!campaignId) {
-    const created = await admin
-      .from("hunting_campaigns")
-      .insert({
-        name: "Demo Campaign",
-        description: "Demo campaign (auto-created)",
-        titles: [title],
-        industries: [],
-        locations: [],
-        keywords: [],
-        exclude_companies: [],
-        daily_prospect_limit: 20,
-        min_ai_score: 0,
-        email_daily_limit: 50,
-        send_weekends: true,
-        followup_days: [3, 7, 14],
-        max_followups: 3,
-        require_manual_review: false,
-        status: "active",
-        created_by: demoUserId,
-      })
-      .select("id")
-      .single();
+    const created = await insertHuntingCampaign(admin, {
+      name: "Demo Campaign",
+      description: "Demo campaign (auto-created)",
+      titles: [title],
+      industries: [],
+      locations: [],
+      keywords: [],
+      exclude_companies: [],
+      daily_prospect_limit: 20,
+      min_ai_score: 0,
+      email_daily_limit: 50,
+      send_weekends: true,
+      followup_days: [3, 7, 14],
+      max_followups: 3,
+      require_manual_review: false,
+      status: "active",
+      created_by: demoUserId,
+    });
     campaignId = String((created.data as any)?.id || "") || null;
   }
   if (!campaignId) redirect("/dashboard/hunting?demo=campaign_failed");
@@ -121,7 +139,7 @@ async function createCampaign(formData: FormData) {
   const dailyLimit = Math.max(1, Math.min(500, Number(formData.get("daily_prospect_limit") || 20)));
   const emailDaily = Math.max(1, Math.min(500, Number(formData.get("email_daily_limit") || 10)));
 
-  const ins = await admin.from("hunting_campaigns").insert({
+  const ins = await insertHuntingCampaign(admin, {
     name: rawName,
     description: String(formData.get("description") || ""),
     titles: parseList(formData.get("titles")),
@@ -138,7 +156,7 @@ async function createCampaign(formData: FormData) {
     require_manual_review: requireManual,
     status: "active",
     created_by: demoUserId,
-  }).select("id").single();
+  });
 
   if (ins.error) {
     const code = encodeURIComponent(String((ins.error as any)?.code || ""));

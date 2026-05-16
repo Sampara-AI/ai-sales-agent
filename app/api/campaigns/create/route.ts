@@ -7,6 +7,7 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
     const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+    const demoUserId = "00000000-0000-0000-0000-000000000001";
     let userId = body?.created_by || null;
     if (!demoMode) {
       const supabase = createRouteHandlerClient({ cookies });
@@ -14,6 +15,7 @@ export async function POST(req: NextRequest) {
       userId = session?.session?.user?.id || null;
       if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
+    if (demoMode && !userId) userId = demoUserId;
 
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
     const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY as string | undefined;
@@ -44,9 +46,27 @@ export async function POST(req: NextRequest) {
       created_by: userId,
     };
 
-    const res = await admin.from("hunting_campaigns").insert(payload).select("id").single();
+    let attempt = { ...payload };
+    let lastErr: any = null;
+    for (let i = 0; i < 12; i++) {
+      const res = await admin.from("hunting_campaigns").insert(attempt).select("id").single();
+      if (!res.error) return NextResponse.json({ id: res.data?.id }, { status: 200 });
+      lastErr = res.error;
+      const msg = String(res.error.message || "");
+      const m =
+        msg.match(/Could not find the '([^']+)' column of 'hunting_campaigns'/) ||
+        msg.match(/column \"([^\"]+)\" of relation \"hunting_campaigns\" does not exist/i) ||
+        msg.match(/column \"([^\"]+)\" does not exist/i);
+      const missing = m?.[1];
+      if (missing && Object.prototype.hasOwnProperty.call(attempt, missing)) {
+        delete (attempt as any)[missing];
+        continue;
+      }
+      break;
+    }
+    const res = { error: lastErr };
     if (res.error) return NextResponse.json({ error: res.error.message }, { status: 400 });
-    return NextResponse.json({ id: res.data?.id }, { status: 200 });
+    return NextResponse.json({ error: "Insert failed" }, { status: 400 });
   } catch (e: any) {
     return NextResponse.json({ error: e?.message || "Server error" }, { status: 500 });
   }
