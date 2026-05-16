@@ -52,6 +52,11 @@ export async function POST(req: NextRequest) {
       const res = await admin.from("hunting_campaigns").insert(attempt).select("id").single();
       if (!res.error) return NextResponse.json({ id: res.data?.id }, { status: 200 });
       lastErr = res.error;
+      const code = String((res.error as any)?.code || "");
+      if (code === "23503" && Object.prototype.hasOwnProperty.call(attempt, "created_by")) {
+        delete (attempt as any).created_by;
+        continue;
+      }
       const msg = String(res.error.message || "");
       const m =
         msg.match(/Could not find the '([^']+)' column of 'hunting_campaigns'/) ||

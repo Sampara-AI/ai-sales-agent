@@ -15,6 +15,11 @@ async function insertHuntingCampaign(admin: ReturnType<typeof createAdminClient>
     const res = await admin.from("hunting_campaigns").insert(payload).select("id").single();
     if (!res.error) return res;
     lastErr = res.error;
+    const code = String((res.error as any)?.code || "");
+    if (code === "23503" && Object.prototype.hasOwnProperty.call(payload, "created_by")) {
+      delete (payload as any).created_by;
+      continue;
+    }
     const msg = String(res.error.message || "");
     const m =
       msg.match(/Could not find the '([^']+)' column of 'hunting_campaigns'/) ||
