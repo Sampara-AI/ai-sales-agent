@@ -36,6 +36,32 @@ async function insertHuntingCampaign(admin: ReturnType<typeof createAdminClient>
   return { data: null, error: lastErr };
 }
 
+function extractMissingProspectsColumnName(message: string) {
+  const msg = String(message || "");
+  const m =
+    msg.match(/Could not find the '([^']+)' column of 'prospects'/) ||
+    msg.match(/column \"([^\"]+)\" of relation \"prospects\" does not exist/i) ||
+    msg.match(/column \"([^\"]+)\" does not exist/i);
+  return m?.[1] ? String(m[1]) : "";
+}
+
+async function insertProspect(admin: ReturnType<typeof createAdminClient>, initialPayload: Record<string, any>) {
+  let payload = { ...initialPayload };
+  let lastErr: any = null;
+  for (let i = 0; i < 12; i++) {
+    const res = await admin.from("prospects").insert(payload).select("id").single();
+    if (!res.error) return res;
+    lastErr = res.error;
+    const missing = extractMissingProspectsColumnName(res.error.message || "");
+    if (missing && Object.prototype.hasOwnProperty.call(payload, missing)) {
+      delete (payload as any)[missing];
+      continue;
+    }
+    break;
+  }
+  return { data: null, error: lastErr };
+}
+
 async function processCsvCampaign(formData: FormData) {
   "use server";
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
@@ -166,8 +192,8 @@ async function sendDemoEmail(formData: FormData) {
   if (!campaignId) redirect("/dashboard/hunting?demo=campaign_failed");
 
   const prospectIns = await admin
-    .from("prospects")
-    .insert({
+    ;
+  const prospectCreated = await insertProspect(admin, {
       campaign_id: campaignId,
       name,
       title,
@@ -180,10 +206,8 @@ async function sendDemoEmail(formData: FormData) {
       source: "demo",
       notes: "demo recipient",
       recent_activity: domain ? `Imported domain: ${domain}` : null,
-    })
-    .select("id")
-    .single();
-  const prospectId = String((prospectIns.data as any)?.id || "").trim();
+    });
+  const prospectId = String((prospectCreated.data as any)?.id || "").trim();
   if (!prospectId) redirect("/dashboard/hunting?demo=prospect_failed");
 
   const h = await headers();

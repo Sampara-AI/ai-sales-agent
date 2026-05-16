@@ -14,6 +14,15 @@ type ImportRow = {
   notes?: string;
 };
 
+function extractMissingColumnName(message: string) {
+  const msg = String(message || "");
+  const m =
+    msg.match(/Could not find the '([^']+)' column of 'prospects'/) ||
+    msg.match(/column \"([^\"]+)\" of relation \"prospects\" does not exist/i) ||
+    msg.match(/column \"([^\"]+)\" does not exist/i);
+  return m?.[1] ? String(m[1]) : "";
+}
+
 function normalizeHeader(h: string) {
   return String(h || "")
     .trim()
@@ -233,8 +242,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       return NextResponse.json({ success: true, imported: 0, skipped_duplicates, truncated_to: 250 });
     }
 
-    const ins = await supabase.from("prospects").insert(insert);
-    if (ins.error) return NextResponse.json({ success: false, error: ins.error.message || "Insert failed" }, { status: 500 });
+    let attemptRows = insert.map((r) => ({ ...r })) as Record<string, any>[];
+    let lastErr: any = null;
+    for (let i = 0; i < 12; i++) {
+      const ins = await supabase.from("prospects").insert(attemptRows);
+      if (!ins.error) { lastErr = null; break; }
+      lastErr = ins.error;
+      const missing = extractMissingColumnName(ins.error.message || "");
+      if (missing && Object.prototype.hasOwnProperty.call(attemptRows[0] || {}, missing)) {
+        attemptRows = attemptRows.map((r) => {
+          const next = { ...r };
+          delete next[missing];
+          return next;
+        });
+        continue;
+      }
+      break;
+    }
+    if (lastErr) return NextResponse.json({ success: false, error: lastErr.message || "Insert failed" }, { status: 500 });
 
     try {
       const foundCountRes = await supabase.from("prospects").select("id", { count: "exact", head: true }).eq("campaign_id", id);
