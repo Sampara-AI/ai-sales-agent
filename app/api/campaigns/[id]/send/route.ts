@@ -30,6 +30,7 @@ type DraftRow = {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const adminDb = createAdminClient();
+  const wantsHtml = (req.headers.get("accept") || "").includes("text/html");
 
   const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const add = dow === 6 ? 2 : 1;
       next.setDate(next.getDate() + add);
       next.setHours(9, 0, 0, 0);
+      if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?send=0&campaign=${encodeURIComponent(id)}`, req.url), 303);
       return NextResponse.json({ success: true, campaign_id: id, emails_sent: 0, emails_failed: 0, remaining_daily_limit: limit, next_eligible_send: next.toISOString(), message: "Weekend sending disabled" });
     }
 
@@ -91,6 +93,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const next = new Date();
       next.setDate(next.getDate() + 1);
       next.setHours(9, 0, 0, 0);
+      if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?send=0&campaign=${encodeURIComponent(id)}`, req.url), 303);
       return NextResponse.json({ success: true, campaign_id: id, emails_sent: 0, emails_failed: 0, remaining_daily_limit: 0, next_eligible_send: next.toISOString(), message: "Daily limit reached" });
     }
 
@@ -149,6 +152,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const res = await enqueueJobs(jobs);
       enqueued = res.inserted;
     } catch (e: any) {
+      if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?send=failed&campaign=${encodeURIComponent(id)}`, req.url), 303);
       return NextResponse.json({ success: false, error: e?.message || "Failed to enqueue send jobs" }, { status: 500 });
     }
 
@@ -160,12 +164,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     next.setDate(next.getDate() + 1);
     next.setHours(9, 0, 0, 0);
     const remaining_daily_limit = Math.max(0, limit - sentToday);
+    if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?send=${enqueued}&campaign=${encodeURIComponent(id)}`, req.url), 303);
     return NextResponse.json({ success: true, campaign_id: id, jobs_enqueued: enqueued, remaining_daily_limit, next_eligible_send: next.toISOString() }, { status: 202 });
   } catch (err: any) {
     try {
       const summary = String(err?.message || "Send failed");
       await adminDb.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "email", result_summary: summary, status: "error" });
     } catch {}
+    if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?send=failed&campaign=${encodeURIComponent(id)}`, req.url), 303);
     return NextResponse.json({ success: false, error: err?.message || "Email send failed" }, { status: 500 });
   }
 }

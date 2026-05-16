@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Nunito_Sans } from "next/font/google";
 import { useRouter } from "next/navigation";
 import { createClientComponentClient } from "@supabase/auth-helpers-nextjs";
-import AuthProvider, { useAuth } from "@/lib/supabase/auth-provider";
+import AuthProvider, { useAuth } from "@/lib/auth/auth-context";
 import { Suspense } from "react";
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, Tooltip, BarChart, Bar } from "recharts";
 
@@ -22,6 +22,7 @@ function AdminContent() {
   const router = useRouter();
   const supabase = useMemo(() => createClientComponentClient(), []);
   const { user, isAdmin } = useAuth();
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,15 +50,22 @@ function AdminContent() {
   const [knowledgeBanner, setKnowledgeBanner] = useState<string | null>(null);
 
   useEffect(() => {
+    if (demoMode) return;
     if (!user) { router.replace("/dashboard"); return; }
     if (!isAdmin) { router.replace("/dashboard"); return; }
-  }, [user, isAdmin]);
+  }, [user, isAdmin, demoMode]);
 
   useEffect(() => {
     const load = async () => {
       try {
         setLoading(true);
         setError(null);
+        if (demoMode) {
+          const ok = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY && process.env.GROQ_API_KEY && process.env.RESEND_API_KEY;
+          setHealth(ok ? "✅ Demo mode ready" : "⚠️ Missing environment configuration");
+          setLoading(false);
+          return;
+        }
         const uRes = await supabase.from("profiles").select("id,user_id,name,email,company,role,created_at").order("created_at", { ascending: false }).limit(500);
         setUsers(((uRes.data || []) as Profile[]));
         const cRes = await supabase.from("hunting_campaigns").select("id", { count: "exact", head: true }).eq("status", "active");
@@ -82,10 +90,10 @@ function AdminContent() {
       }
     };
     load();
-  }, [supabase]);
+  }, [supabase, demoMode]);
 
   useEffect(() => {
-    if (!user || !isAdmin) return;
+    if ((!user || !isAdmin) && !demoMode) return;
     let mounted = true;
     const loadQueue = async () => {
       try {
@@ -100,10 +108,10 @@ function AdminContent() {
     loadQueue();
     const t = setInterval(loadQueue, 10000);
     return () => { mounted = false; clearInterval(t); };
-  }, [user, isAdmin]);
+  }, [user, isAdmin, demoMode]);
 
   useEffect(() => {
-    if (!user || !isAdmin) return;
+    if ((!user || !isAdmin) && !demoMode) return;
     let mounted = true;
     const loadKb = async () => {
       try {
@@ -117,7 +125,7 @@ function AdminContent() {
     loadKb();
     const t = setInterval(loadKb, 15000);
     return () => { mounted = false; clearInterval(t); };
-  }, [user, isAdmin]);
+  }, [user, isAdmin, demoMode]);
 
   const signupsSeries = (() => {
     const byDay: Record<string, number> = {};
@@ -271,6 +279,14 @@ function AdminContent() {
       <div className="mx-auto max-w-7xl px-6 py-8">
         {error && <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3 text-red-800 text-sm">{error}</div>}
         <div className="mb-6 text-2xl font-semibold text-slate-900">Admin</div>
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
+          <div className="font-semibold text-slate-900">Demo Workflow</div>
+          <div className="mt-1">CSV upload + enrichment + sending is in Hunting Campaigns.</div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a href="/dashboard/hunting" className="rounded-lg bg-slate-900 px-3 py-2 text-sm text-white">Go to Hunting (CSV + Run + Send)</a>
+            <a href="/dashboard/hunting#quick-demo" className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">Quick Demo (Send to yourself)</a>
+          </div>
+        </div>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-5">
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs text-slate-500">Total Users</div><div className="mt-1 text-2xl font-semibold">{users.length}</div></div>
           <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="text-xs text-slate-500">Active Campaigns</div><div className="mt-1 text-2xl font-semibold">{activeCampaigns}</div></div>

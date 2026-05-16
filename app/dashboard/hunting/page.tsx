@@ -170,6 +170,10 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
   const prospects = (prospectsRes.data || []) as any[];
   const demoNotice = typeof searchParams?.demo === "string" ? searchParams?.demo : "";
   const createdNotice = typeof searchParams?.created === "string" ? searchParams?.created : "";
+  const importNotice = typeof searchParams?.import === "string" ? searchParams?.import : "";
+  const huntNotice = typeof searchParams?.hunt === "string" ? searchParams?.hunt : "";
+  const sendNotice = typeof searchParams?.send === "string" ? searchParams?.send : "";
+  const followupNotice = typeof searchParams?.followup === "string" ? searchParams?.followup : "";
 
   return (
     <div className={`${nunito.className} min-h-screen bg-slate-50 text-slate-900`}>
@@ -194,6 +198,14 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                   : demoNotice === "send_failed"
                     ? "Could not send email. Check RESEND_API_KEY and verified sender."
                     : "Demo action failed."}
+          </div>
+        )}
+        {(importNotice || huntNotice || sendNotice || followupNotice) && (
+          <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
+            {importNotice && <div>CSV import: {importNotice === "failed" ? "failed" : `${importNotice} rows imported`}</div>}
+            {huntNotice && <div>Hunt: {huntNotice === "ok" ? "completed" : "failed"}</div>}
+            {sendNotice && <div>Send: {sendNotice === "failed" ? "failed" : `${sendNotice} emails enqueued`}</div>}
+            {followupNotice && <div>Followups: {followupNotice === "failed" ? "failed" : `${followupNotice} followups enqueued`}</div>}
           </div>
         )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
@@ -349,7 +361,7 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
           </div>
 
           <div className="space-y-6">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div id="quick-demo" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="text-sm font-semibold text-slate-900">Quick Demo: Send yourself an outreach email</div>
               <form action={sendDemoEmail} className="mt-4 space-y-3">
                 <input name="to_email" placeholder="Your email (to receive the demo)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />

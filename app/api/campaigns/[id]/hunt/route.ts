@@ -41,6 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
   const isInternal = demoMode || (!!internalSecret && internalHeader === internalSecret);
   const supabase = demoMode ? null : createRouteHandlerClient({ cookies });
+  const wantsHtml = (req.headers.get("accept") || "").includes("text/html");
 
   const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
@@ -286,6 +287,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .from("hunting_campaign_runs")
       .insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
 
+    if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?hunt=ok&campaign=${encodeURIComponent(id)}`, req.url), 303);
     return NextResponse.json({ success: true, campaign_id: id, prospects_found, prospects_added, high_scorers, emails_generated, next_action: "Send emails from dashboard" });
   } catch (err: any) {
     runStatus = "error";
@@ -294,6 +296,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const db = (admin || supabase) as any;
       if (db) await db.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "hunt", result_summary: runSummary, status: runStatus });
     } catch {}
+    if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?hunt=failed&campaign=${encodeURIComponent(id)}`, req.url), 303);
     return NextResponse.json({ success: false, error: err?.message || "Hunt failed" }, { status: 500 });
   }
 }

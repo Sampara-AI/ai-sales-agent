@@ -29,6 +29,7 @@ type ProspectRow = {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const adminDb = createAdminClient();
+  const wantsHtml = (req.headers.get("accept") || "").includes("text/html");
 
   const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
@@ -58,7 +59,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (cRes.error || !cRes.data) return NextResponse.json({ success: false, error: cRes.error?.message || "Campaign not found" }, { status: 404 });
     const c = cRes.data as CampaignRow;
     if (!isInternal && !isAdmin && (c as any).created_by && (c as any).created_by !== currentUserId) return NextResponse.json({ success: false, error: "Forbidden" }, { status: 403 });
-    if (!c.enable_followups) return NextResponse.json({ success: true, followups_sent: 0, prospects_moved_to_nurture: 0, details: [], message: "Follow-ups disabled" });
+    if (!c.enable_followups) {
+      if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?followup=0&campaign=${encodeURIComponent(id)}`, req.url), 303);
+      return NextResponse.json({ success: true, followups_sent: 0, prospects_moved_to_nurture: 0, details: [], message: "Follow-ups disabled" });
+    }
 
     const days = Array.isArray(c.followup_days) ? c.followup_days : [3, 7, 14];
     const max = Math.max(1, Number(c.max_followups || 3));
@@ -115,17 +119,20 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       const res = await enqueueJobs(jobs);
       enqueued = res.inserted;
     } catch (e: any) {
+      if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?followup=failed&campaign=${encodeURIComponent(id)}`, req.url), 303);
       return NextResponse.json({ success: false, error: e?.message || "Failed to enqueue follow-up jobs" }, { status: 500 });
     }
 
     const summary = `jobs_enqueued=${enqueued}`;
     await adminDb.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "followup", result_summary: summary, status: "success" });
+    if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?followup=${enqueued}&campaign=${encodeURIComponent(id)}`, req.url), 303);
     return NextResponse.json({ success: true, campaign_id: id, jobs_enqueued: enqueued }, { status: 202 });
   } catch (err: any) {
     try {
       const summary = String(err?.message || "Follow-up failed");
       await adminDb.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "followup", result_summary: summary, status: "error" });
     } catch {}
+    if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?followup=failed&campaign=${encodeURIComponent(id)}`, req.url), 303);
     return NextResponse.json({ success: false, error: err?.message || "Follow-up failed" }, { status: 500 });
   }
 }

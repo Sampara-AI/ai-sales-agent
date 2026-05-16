@@ -44,6 +44,7 @@ type EmailPreview = {
 };
 
 export default function DashboardPage() {
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const { user, profile, signOut } = useAuth();
   const supabase = useMemo(() => {
     const url = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
@@ -51,6 +52,29 @@ export default function DashboardPage() {
     if (url && anonKey) return createClient(url, anonKey);
     return null;
   }, []);
+
+  useEffect(() => {
+    if (!demoMode) return;
+    window.location.replace("/dashboard/hunting");
+  }, [demoMode]);
+
+  if (demoMode) {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-900">
+        <div className="mx-auto max-w-3xl px-6 py-16">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="text-lg font-semibold">Launching demo…</div>
+            <div className="mt-2 text-sm text-slate-600">Redirecting to the hunting workflow.</div>
+            <div className="mt-4">
+              <a href="/dashboard/hunting" className="inline-flex rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                Go to Hunting
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

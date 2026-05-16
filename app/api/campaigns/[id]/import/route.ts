@@ -70,6 +70,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const supabase = demoMode ? createAdminClient() : createRouteHandlerClient({ cookies });
   const id = String((await params)?.id || "").trim();
   if (!id) return NextResponse.json({ success: false, error: "Invalid campaign id" }, { status: 400 });
+  const wantsHtml = (req.headers.get("accept") || "").includes("text/html");
 
   try {
     if (!demoMode) {
@@ -137,7 +138,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       rows.push({ email, domain, company, name, title, industry, linkedin_url, notes });
     }
 
-    if (rows.length === 0) return NextResponse.json({ success: false, error: "No valid rows found" }, { status: 400 });
+    if (rows.length === 0) {
+      if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?import=0&campaign=${encodeURIComponent(id)}`, req.url), 303);
+      return NextResponse.json({ success: false, error: "No valid rows found" }, { status: 400 });
+    }
 
     const existingRes = await supabase.from("prospects").select("email,domain").eq("campaign_id", id);
     const existingKeys = new Set<string>(
@@ -179,6 +183,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (insert.length === 0) {
       await supabase.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "import", result_summary: "imported=0; skipped_duplicates=" + skipped_duplicates, status: "success" });
+      if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?import=0&skipped=${skipped_duplicates}&campaign=${encodeURIComponent(id)}`, req.url), 303);
       return NextResponse.json({ success: true, imported: 0, skipped_duplicates, truncated_to: 250 });
     }
 
@@ -194,8 +199,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       await supabase.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "import", result_summary: `imported=${insert.length}; skipped_duplicates=${skipped_duplicates}`, status: "success" });
     } catch {}
 
+    if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?import=${insert.length}&skipped=${skipped_duplicates}&campaign=${encodeURIComponent(id)}`, req.url), 303);
     return NextResponse.json({ success: true, imported: insert.length, skipped_duplicates, truncated_to: 250 });
   } catch (err: any) {
+    if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?import=failed&campaign=${encodeURIComponent(id)}`, req.url), 303);
     return NextResponse.json({ success: false, error: err?.message || "Import failed" }, { status: 500 });
   }
 }
