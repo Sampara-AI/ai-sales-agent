@@ -35,6 +35,7 @@ export function useAuth() {
 export default function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  const demoUserId = "00000000-0000-0000-0000-000000000001";
   const supabase = useMemo(() => createClientComponentClient(), []);
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -42,9 +43,9 @@ export default function AuthProvider({ children }: { children: React.ReactNode }
 
   useEffect(() => {
     if (demoMode) {
-      setUser({ id: "demo-user" } as unknown as User);
+      setUser({ id: demoUserId, email: "demo@local" } as unknown as User);
       setProfile({
-        id: "demo-profile",
+        id: demoUserId,
         email: "demo@local",
         full_name: "Demo",
         company: null,

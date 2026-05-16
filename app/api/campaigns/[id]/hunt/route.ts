@@ -37,6 +37,7 @@ type CampaignRow = {
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const isDev = process.env.NODE_ENV === "development";
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  const demoUserId = "00000000-0000-0000-0000-000000000001";
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
   const internalHeader = String(req.headers.get("x-internal-secret") || "").trim();
   const isInternal = demoMode || (!!internalSecret && internalHeader === internalSecret);
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     let currentUser: any = null;
     if (demoMode) {
-      currentUser = { id: "demo", email: "demo@local" };
+      currentUser = { id: demoUserId, email: "demo@local" };
     } else {
       const { data: userData } = await (supabase as any).auth.getUser();
       currentUser = userData.user as any;

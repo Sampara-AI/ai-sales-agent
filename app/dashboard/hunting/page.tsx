@@ -6,6 +6,7 @@ import { headers } from "next/headers";
 export const dynamic = "force-dynamic";
 
 const nunito = Nunito_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "700", "800"] });
+const demoUserId = "00000000-0000-0000-0000-000000000001";
 
 async function sendDemoEmail(formData: FormData) {
   "use server";
@@ -46,7 +47,7 @@ async function sendDemoEmail(formData: FormData) {
         max_followups: 3,
         require_manual_review: false,
         status: "active",
-        created_by: "demo",
+        created_by: demoUserId,
       })
       .select("id")
       .single();
@@ -136,7 +137,7 @@ async function createCampaign(formData: FormData) {
     max_followups: 3,
     require_manual_review: requireManual,
     status: "active",
-    created_by: "demo",
+    created_by: demoUserId,
   }).select("id").single();
 
   if (ins.error) {
