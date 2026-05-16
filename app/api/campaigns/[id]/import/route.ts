@@ -49,17 +49,37 @@ function parseCsvLine(line: string) {
   return out.map((s) => s.trim());
 }
 
+function cleanCell(v: string) {
+  let s = String(v || "").trim();
+  if (!s) return "";
+  if ((s.startsWith("`") && s.endsWith("`")) || (s.startsWith("'") && s.endsWith("'"))) s = s.slice(1, -1).trim();
+  if (s.startsWith('"') && s.endsWith('"')) s = s.slice(1, -1).trim();
+  return s;
+}
+
+function splitLine(line: string, delimiter: "," | "\t") {
+  if (delimiter === ",") return parseCsvLine(line).map(cleanCell);
+  return line.split("\t").map((s) => cleanCell(s));
+}
+
+function detectDelimiter(lines: string[]) {
+  const sample = lines.find((l) => l.trim().length > 0) || "";
+  const tabs = (sample.match(/\t/g) || []).length;
+  const commas = (sample.match(/,/g) || []).length;
+  return tabs > commas ? "\t" : ",";
+}
+
 function deriveDomain(email?: string, domain?: string) {
-  const d = String(domain || "").trim();
+  const d = cleanCell(String(domain || ""));
   if (d) return d.replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/^www\./, "").toLowerCase();
-  const e = String(email || "").trim();
+  const e = cleanCell(String(email || ""));
   const at = e.indexOf("@");
   if (at === -1) return "";
   return e.slice(at + 1).replace(/^www\./, "").toLowerCase();
 }
 
 function safeEmail(email?: string) {
-  const e = String(email || "").trim();
+  const e = cleanCell(String(email || ""));
   if (!e) return "";
   const ok = /[^@\s]+@[^@\s]+\.[^@\s]+/.test(e);
   return ok ? e : "";
@@ -98,9 +118,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const raw = await file.text();
     const lines = raw.split(/\r?\n/).filter((l) => l.trim().length > 0);
-    if (lines.length < 2) return NextResponse.json({ success: false, error: "CSV has no rows" }, { status: 400 });
+    if (lines.length < 1) return NextResponse.json({ success: false, error: "CSV has no rows" }, { status: 400 });
 
-    const headers = parseCsvLine(lines[0]).map(normalizeHeader);
+    const delimiter = detectDelimiter(lines);
+    const headers = splitLine(lines[0], delimiter).map(normalizeHeader);
     const idx = (name: string) => headers.findIndex((h) => h === name);
     const iEmail = idx("email");
     const iDomain = idx("domain");
@@ -115,19 +136,44 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     const rows: ImportRow[] = [];
     const seenKeys = new Set<string>();
-    for (const line of lines.slice(1)) {
-      const cols = parseCsvLine(line);
-      const email = safeEmail(cols[iEmail] || "").toLowerCase();
-      const domain = deriveDomain(email, cols[iDomain] || "");
-      const name =
-        (cols[iName] || "").trim() ||
-        `${String(cols[iFirst] || "").trim()} ${String(cols[iLast] || "").trim()}`.trim() ||
-        "";
-      const company = String(cols[iCompany] || "").trim() || (domain ? domain.replace(/^www\./, "") : "");
-      const title = String(cols[iTitle] || "").trim();
-      const industry = String(cols[iIndustry] || "").trim();
-      const linkedin_url = String(cols[iLinkedin] || "").trim();
-      const notes = String(cols[iNotes] || "").trim();
+    const hasHeaderMapping = iEmail !== -1 || iDomain !== -1 || iCompany !== -1 || iName !== -1 || iFirst !== -1 || iLast !== -1;
+    const dataLines = hasHeaderMapping ? lines.slice(1) : lines;
+    for (const line of dataLines) {
+      const cols = splitLine(line, delimiter);
+
+      let email = "";
+      let domain = "";
+      let name = "";
+      let company = "";
+      let title = "";
+      let industry = "";
+      let linkedin_url = "";
+      let notes = "";
+
+      if (hasHeaderMapping) {
+        email = safeEmail(cols[iEmail] || "").toLowerCase();
+        domain = deriveDomain(email, cols[iDomain] || "");
+        name =
+          cleanCell(cols[iName] || "") ||
+          `${cleanCell(cols[iFirst] || "")} ${cleanCell(cols[iLast] || "")}`.trim() ||
+          "";
+        company = cleanCell(cols[iCompany] || "") || (domain ? domain.replace(/^www\./, "") : "");
+        title = cleanCell(cols[iTitle] || "");
+        industry = cleanCell(cols[iIndustry] || "");
+        linkedin_url = cleanCell(cols[iLinkedin] || "");
+        notes = cleanCell(cols[iNotes] || "");
+      } else {
+        const first = cleanCell(cols[0] || "");
+        const second = cleanCell(cols[1] || "");
+        const third = cleanCell(cols[2] || "");
+        const maybeEmail = safeEmail(first) || safeEmail(second) || safeEmail(third);
+        email = maybeEmail.toLowerCase();
+        const maybeDomain = email ? "" : first;
+        domain = deriveDomain(email, maybeDomain || first);
+        company = domain ? domain.replace(/^www\./, "") : "";
+        name = "";
+        notes = "";
+      }
 
       if (!email && !domain && !company && !name) continue;
       const key = domain ? `${domain}|${email || ""}` : email ? `|${email}` : "";
@@ -140,7 +186,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
     if (rows.length === 0) {
       if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?import=0&campaign=${encodeURIComponent(id)}`, req.url), 303);
-      return NextResponse.json({ success: false, error: "No valid rows found" }, { status: 400 });
+      return NextResponse.json({ success: false, error: "No valid rows found. Use headers domain,email or upload a 2-column list (domain/email) separated by comma or tab." }, { status: 400 });
     }
 
     const existingRes = await supabase.from("prospects").select("email,domain").eq("campaign_id", id);
