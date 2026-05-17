@@ -243,6 +243,47 @@ async function sendDemoEmail(formData: FormData) {
   redirect("/dashboard/hunting?demo=sent");
 }
 
+async function analyzeInboundReply(formData: FormData) {
+  "use server";
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (!demoMode) redirect("/dashboard/hunting");
+
+  const campaignId = String(formData.get("campaign_id") || "").trim();
+  if (!campaignId) redirect("/dashboard/hunting");
+
+  const fromEmail = String(formData.get("from_email") || "").trim().toLowerCase();
+  const toEmail = String(formData.get("to_email") || "").trim().toLowerCase();
+  const subject = String(formData.get("subject") || "").trim();
+  const body = String(formData.get("body") || "").trim();
+  if (!fromEmail || !toEmail || !body) redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=invalid#reply`);
+
+  const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
+  const externalThreadId = crypto.randomUUID();
+  const h = await headers();
+  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
+  const proto = h.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+  const baseUrl = `${proto}://${host}`;
+
+  try {
+    const res = await fetch(`${baseUrl}/api/inbox/respond`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
+      body: JSON.stringify({ mailbox: "default", external_thread_id: externalThreadId, from_email: fromEmail, to_email: toEmail, subject, body }),
+      cache: "no-store",
+    });
+    const json = await res.json().catch(() => ({} as any));
+    if (!res.ok) {
+      const errText = String((json as any)?.error || "");
+      const code = errText.includes("OPENAI_API_KEY") ? "missing_openai" : "failed";
+      redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=${encodeURIComponent(code)}#reply`);
+    }
+  } catch {
+    redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=failed#reply`);
+  }
+
+  redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&thread=${encodeURIComponent(externalThreadId)}#reply`);
+}
+
 async function createCampaign(formData: FormData) {
   "use server";
   const admin = createAdminClient();
@@ -298,6 +339,8 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
   const stageRaw = typeof searchParams?.stage === "string" ? searchParams?.stage : "";
   const stage = String(stageRaw || "import").trim().toLowerCase();
   const effectiveStage = stage === "enrich" || stage === "process" || stage === "inbox" ? stage : "import";
+  const replyStatus = typeof searchParams?.reply === "string" ? searchParams?.reply : "";
+  const threadParam = typeof searchParams?.thread === "string" ? searchParams?.thread : "";
 
   const [campaignsRes, emailsRes, repliesRes, meetingsRes, runsRes, prospectsRes, selectedProspectsRes] = await Promise.all([
     admin.from("hunting_campaigns").select("id,name,status,found_count,contacted_count,replied_count,booked_count,last_run_at,created_at").order("created_at", { ascending: false }),
@@ -327,6 +370,19 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
   const runs = (runsRes.data || []) as any[];
   const prospects = (prospectsRes.data || []) as any[];
   const selectedProspects = (selectedProspectsRes.data || []) as any[];
+
+  let latestReply: any | null = null;
+  if (selectedCampaignId && effectiveStage === "inbox" && threadParam) {
+    try {
+      const mr = await admin
+        .from("inbox_messages")
+        .select("id,from_email,to_email,subject,intent,ai_confidence,ai_summary,ai_next_action,ai_draft_subject,ai_draft_body,escalated,knowledge_refs,created_at")
+        .eq("thread_external_id", threadParam)
+        .order("created_at", { ascending: false })
+        .limit(1);
+      latestReply = ((mr.data || []) as any[])[0] || null;
+    } catch {}
+  }
   const demoNotice = typeof searchParams?.demo === "string" ? searchParams?.demo : "";
   const createdNotice = typeof searchParams?.created === "string" ? searchParams?.created : "";
   const createdCode = typeof searchParams?.code === "string" ? searchParams?.code : "";
@@ -528,12 +584,61 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                   )}
 
                   {effectiveStage === "inbox" && (
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="font-semibold">Next → Inbox signals + smart reply</div>
-                        <div className="mt-1 text-xs text-slate-500">Paste an inbound reply to classify warm/hot signals and generate a knowledge-grounded response.</div>
+                    <div id="reply" className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <div className="font-semibold">Next → Inbox signals + smart reply</div>
+                          <div className="mt-1 text-xs text-slate-500">Paste an inbound reply to classify warm/hot signals and generate a knowledge-grounded response.</div>
+                        </div>
+                        <a href="/dashboard/inbox" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Open Inbox</a>
                       </div>
-                      <a href="/dashboard/inbox" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Open Inbox</a>
+
+                      {replyStatus === "missing_openai" && <div className="mt-3 text-xs text-rose-700">Missing OPENAI_API_KEY (required for embeddings + grounding).</div>}
+                      {replyStatus === "failed" && <div className="mt-3 text-xs text-rose-700">Reply analysis failed. Check GROQ_API_KEY / OPENAI_API_KEY and try again.</div>}
+                      {replyStatus === "invalid" && <div className="mt-3 text-xs text-rose-700">Fill from_email, to_email, and body.</div>}
+
+                      <form action={analyzeInboundReply} className="mt-3 grid grid-cols-1 gap-2">
+                        <input type="hidden" name="campaign_id" value={selectedCampaignId} />
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          <input name="from_email" defaultValue={String(selectedProspects?.[0]?.email || "")} placeholder="From (client email)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
+                          <input name="to_email" defaultValue={String(process.env.DEFAULT_FROM_EMAIL || "")} placeholder="To (your sending inbox)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
+                        </div>
+                        <input name="subject" placeholder="Subject (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
+                        <textarea name="body" placeholder="Paste reply body…" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" rows={5} />
+                        <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Analyze Reply</button>
+                      </form>
+
+                      {latestReply && (
+                        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs text-slate-500">Signals</div>
+                            <div className="flex items-center gap-2">
+                              <span className={`rounded-full border px-3 py-1 text-xs ${latestReply.escalated ? "border-rose-200 bg-rose-50 text-rose-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+                                {latestReply.escalated ? "HOT" : "WARM"}
+                              </span>
+                              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700">
+                                {String(latestReply.intent || "curiosity")} • {String(latestReply.ai_confidence ?? "—")}/100
+                              </span>
+                            </div>
+                          </div>
+                          {latestReply.ai_summary && <div className="mt-3 text-sm text-slate-700">{String(latestReply.ai_summary)}</div>}
+                          {latestReply.ai_draft_body && (
+                            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                              <div className="text-xs font-semibold text-slate-800">{String(latestReply.ai_draft_subject || "Draft reply")}</div>
+                              <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{String(latestReply.ai_draft_body)}</pre>
+                              <div className="mt-3 flex flex-wrap items-center gap-2">
+                                <a
+                                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
+                                  href={`mailto:${encodeURIComponent(String(latestReply.from_email || ""))}?subject=${encodeURIComponent(String(latestReply.ai_draft_subject || ""))}&body=${encodeURIComponent(String(latestReply.ai_draft_body || ""))}`}
+                                >
+                                  Open in Email Client
+                                </a>
+                                <a href="/dashboard/inbox" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">Open Inbox</a>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   )}
 
