@@ -258,9 +258,9 @@ export default function CampaignDetailPage() {
       const res = await fetch(`/api/campaigns/${id}/import`, { method: "POST", body: fd });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json?.error || "Import failed");
-      setBanner(`Imported ${json?.imported ?? "leads"} into campaign`);
-      setImportFile(null);
-      await load();
+      const imported = typeof (json as any)?.imported === "number" ? (json as any).imported : 0;
+      const skipped = typeof (json as any)?.skipped_duplicates === "number" ? (json as any).skipped_duplicates : 0;
+      window.location.href = `/dashboard/hunting?campaign=${encodeURIComponent(id)}&import=${encodeURIComponent(String(imported))}&skipped=${encodeURIComponent(String(skipped))}&stage=enrich#stage`;
     } catch (e: any) {
       setError(e?.message || "Import failed");
     } finally {

@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
     const footerLinkUrl = process.env.EMAIL_FOOTER_LINK_URL || "https://cal.com/tuple-ai/intro";
     const unsubscribeUrl = process.env.EMAIL_UNSUBSCRIBE_URL || "https://tuple.ai/unsubscribe";
     const brandUrl = process.env.EMAIL_BRAND_URL || process.env.NEXT_PUBLIC_BRAND_URL || "https://www.tupleai.co.in";
+    const poweredByText = String(process.env.EMAIL_POWERED_BY_TEXT || "Powered by Tuple AI").trim();
     const toEmail = String(body?.to_email || body?.to || "").trim();
     if (!body?.prospect_id || !toEmail || !body?.subject || !body?.body) return NextResponse.json({ success: false, error: "Invalid payload" }, { status: 400 });
     const fromName = String(body.from_name || defaultFromName).trim();
@@ -100,6 +101,10 @@ export async function POST(req: NextRequest) {
       if (sentToday >= 100) return NextResponse.json({ success: false, error: "Daily email limit reached. Upgrade Resend or try tomorrow." }, { status: 429 });
     }
 
+    const sigTitle = String(process.env.EMAIL_SIGNATURE_TITLE || "AI Architect | 6 Patents in Enterprise AI").trim();
+    const sigCompany = String(process.env.EMAIL_SIGNATURE_COMPANY || "Tuple AI").trim();
+    const sigCred = String(process.env.EMAIL_CREDIBILITY_LINE || "").trim();
+
     const html = `
       <div style="background:#0b0b0b;color:#ededed;font-family:Inter,Arial,sans-serif;padding:24px">
         <div style="max-width:640px;margin:0 auto;background:#141414;border:1px solid rgba(255,255,255,0.08);border-radius:12px">
@@ -109,19 +114,20 @@ export async function POST(req: NextRequest) {
             <div style="margin-top:16px;font-size:13px;line-height:20px">
               <div>Best regards,</div>
               <div>${fromName}</div>
-              <div>AI Architect | 6 Patents in Enterprise AI</div>
-              <div>Tuple AI</div>
+              <div>${sigTitle}</div>
+              <div>${sigCompany}</div>
+              ${sigCred ? `<div>${sigCred}</div>` : ""}
               <div style="margin-top:8px"><a href="${footerLinkUrl}" style="color:#60a5fa;text-decoration:none">${footerLinkText}</a></div>
             </div>
             <div style="margin-top:24px;font-size:12px;color:#9ca3af">
               <div><a href="${unsubscribeUrl}" style="color:#9ca3af;text-decoration:underline">Unsubscribe</a></div>
-              <div style="margin-top:8px"><a href="${brandUrl}" style="color:#9ca3af;text-decoration:underline">Powered by Tuple AI</a></div>
+              <div style="margin-top:8px"><a href="${brandUrl}" style="color:#9ca3af;text-decoration:underline">${poweredByText}</a></div>
             </div>
           </div>
         </div>
       </div>`;
 
-    const text = `${body.body}\n\nBest regards,\n${fromName}\nAI Architect | 6 Patents in Enterprise AI\nTuple AI\n\n${footerLinkText}: ${footerLinkUrl}\nUnsubscribe: ${unsubscribeUrl}\nPowered by Tuple AI: ${brandUrl}`;
+    const text = `${body.body}\n\nBest regards,\n${fromName}\n${sigTitle}\n${sigCompany}${sigCred ? `\n${sigCred}` : ""}\n\n${footerLinkText}: ${footerLinkUrl}\nUnsubscribe: ${unsubscribeUrl}\n${poweredByText}: ${brandUrl}`;
 
     const resend = new Resend(apiKey);
     const sendRes = await resend.emails.send({

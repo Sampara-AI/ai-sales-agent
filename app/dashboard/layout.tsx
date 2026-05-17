@@ -29,6 +29,7 @@ function Sidebar() {
         <Link href="/dashboard/hunting" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">Hunting Campaigns <span className="ml-2 rounded-full bg-slate-900 px-2 py-0.5 text-[10px] text-white">{activeCampaigns}</span></Link>
         <Link href="/dashboard/inbox" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">Inbox</Link>
         <Link href="/prospects/discover" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">Prospects</Link>
+        <Link href="/dashboard/settings" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">AI Settings</Link>
         {(isAdmin || isDev) && <Link href="/admin" className="block rounded-lg border border-slate-200 bg-white px-3 py-2 text-slate-700 hover:bg-slate-50">Admin</Link>}
       </div>
     </aside>

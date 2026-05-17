@@ -4,6 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 import { cookies } from "next/headers";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
 import { enqueueJob } from "@/lib/server/job-queue";
+import OpenAI from "openai";
 
 type ProspectInput = {
   name?: string;
@@ -24,6 +25,45 @@ type OutreachResult = {
   confidence_score: number;
   reasoning: string;
 };
+
+function vectorLiteral(vec: number[]) {
+  return `[${vec.join(",")}]`;
+}
+
+function extractMissingColumnName(message: string, table: string) {
+  const msg = String(message || "");
+  const m =
+    msg.match(new RegExp(`Could not find the '([^']+)' column of '${table}'`, "i")) ||
+    msg.match(new RegExp(`column \"([^\"]+)\" of relation \"${table}\" does not exist`, "i")) ||
+    msg.match(/column \"([^\"]+)\" does not exist/i);
+  return m?.[1] ? String(m[1]) : "";
+}
+
+async function loadAiSettings(adminDb: any) {
+  const fallback = {
+    brand_name: String(process.env.NEXT_PUBLIC_BRAND_NAME || process.env.DEFAULT_FROM_NAME || "VPersonalize").trim(),
+    brand_website: String(process.env.EMAIL_BRAND_URL || process.env.NEXT_PUBLIC_BRAND_URL || "https://www.vpersonalize.com").trim(),
+    brand_one_liner: String(process.env.NEXT_PUBLIC_BRAND_ONE_LINER || "Custom teamwear & merch made easy for clubs, teams, and brands.").trim(),
+    tone: "Exciting and confident, not pushy. Value-first. One clear CTA.",
+    cta_text: String(process.env.EMAIL_FOOTER_LINK_TEXT || "Book a quick 15-minute chat").trim(),
+    cta_url: String(process.env.EMAIL_FOOTER_LINK_URL || "https://cal.com/vpersonalize/intro").trim(),
+    sender_name: String(process.env.DEFAULT_FROM_NAME || "VPersonalize").trim(),
+    sender_title: String(process.env.EMAIL_SIGNATURE_TITLE || "Partnerships").trim(),
+    sender_company: String(process.env.EMAIL_SIGNATURE_COMPANY || "VPersonalize").trim(),
+    credibility_line: String(process.env.EMAIL_CREDIBILITY_LINE || "").trim(),
+    banned_phrases: ["Tuple AI", "6 patents", "AI Architect"],
+  };
+  try {
+    const res = await adminDb.from("audit_events").select("meta").eq("action", "ai_settings").order("created_at", { ascending: false }).limit(1);
+    const meta = ((res.data || []) as any[])[0]?.meta;
+    if (!meta || typeof meta !== "object") return fallback;
+    const merged = { ...fallback, ...meta };
+    merged.banned_phrases = Array.isArray(merged.banned_phrases) ? merged.banned_phrases : fallback.banned_phrases;
+    return merged;
+  } catch {
+    return fallback;
+  }
+}
 
 const extractJson = (text: string) => {
   const m = text.match(/\{[\s\S]*\}/);
@@ -63,6 +103,7 @@ export async function POST(req: NextRequest) {
 
     if (!apiKey) return NextResponse.json({ error: "Missing GROQ_API_KEY" }, { status: 500 });
     const adminDb = createClient(supabaseUrl, supabaseServiceKey);
+    const aiSettings = await loadAiSettings(adminDb);
     const input = body || {};
     let name = input.name || "";
     let title = input.title || "";
@@ -94,33 +135,76 @@ export async function POST(req: NextRequest) {
     if (!name || !company) return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
 
     const groq = new Groq({ apiKey });
-    const system =
-      "You are an expert at writing personalized cold outreach emails for enterprise AI sales.\n\n" +
-      "Rules:\n- Reference something SPECIFIC about their company or recent activity\n- Identify a likely pain point for their role/industry\n- Mention relevant experience (6 patents in AI) naturally\n- Soft CTA: offer value first (assessment, insights, resource)\n- Tone: Peer-to-peer consultant, NOT salesperson\n- Length: 70-100 words MAX\n- No buzzwords or hype\n- Sound human and thoughtful\n\n" +
-      "- If recent_activity includes 'Domain intel', use exactly 1 concrete detail from it (no guessing)\n" +
-      "- No emojis, no markdown, no exclamation points\n" +
-      "- 1 short question max\n" +
-      "- Keep it 70-90 words\n\n" +
-      "The founder has 6 patents in:\n- Enterprise AI architecture\n- ML model deployment at scale\n- AI governance frameworks\n\nRecent case studies:\n- Fintech company: 40% cost reduction in AI infrastructure\n- Healthcare: HIPAA-compliant AI implementation\n- Manufacturing: Predictive maintenance AI (3x ROI)\n\n" +
-      "Email structure:\n1) Specific observation about them/company\n2-3) Relevant challenge/opportunity\n4) Brief credibility (patent or case study)\n5) Soft ask with value offer\nSignature: Just name + \"AI Architect, 6 Patents\"\n\n" +
-      "Subject lines:\n- Insight-based: \"[Insight] about [their company]'s AI strategy\"\n- Question-based: \"Quick question about [specific challenge]\"\n- Value-based: \"[Resource] for [their role] at [company]\"\n\n" +
-      "Return JSON only: { email_body: string, subject_lines: string[], personalization_score: number, confidence_score: number, reasoning: string }\n\n" +
-      "Good examples:\n- \"Noticed your team open-sourced an inference toolkit last week. Many teams at your scale hit latency and cost tradeoffs—happy to share a 30-minute assessment we used to cut infra costs 40% at a fintech. I'm an AI architect (6 patents). Want a quick audit checklist?\"\n\n" +
-      "Bad examples:\n- \"We are the leading AI platform to revolutionize your workflows!!!\"\n- \"Let's hop on a call to discuss synergies.\"\n";
+    const openaiKey = String(process.env.OPENAI_API_KEY || "").trim();
+    let knowledgeContext = "";
+    if (openaiKey) {
+      try {
+        const openai = new OpenAI({ apiKey: openaiKey });
+        const q = [
+          aiSettings.brand_name,
+          aiSettings.brand_one_liner,
+          company,
+          title,
+          recent_activity,
+          pain_points,
+        ].filter(Boolean).join("\n");
+        const emb = await openai.embeddings.create({ model: "text-embedding-3-small", input: q.slice(0, 8000) });
+        const embedding = (emb.data?.[0] as any)?.embedding as number[] | undefined;
+        if (embedding && embedding.length > 10) {
+          const matches = await adminDb.rpc("match_knowledge_chunks", { query_embedding: vectorLiteral(embedding), match_count: 6 });
+          const chunks = ((matches.data || []) as any[])
+            .map((m) => String(m.content || "").trim())
+            .filter(Boolean)
+            .slice(0, 6);
+          if (chunks.length) knowledgeContext = chunks.join("\n\n---\n\n").slice(0, 5000);
+        }
+      } catch {}
+    }
 
-    const user = JSON.stringify({ name, title, company, industry, recent_activity, pain_points, source });
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0.4,
-      max_tokens: 600,
+    const banned = Array.isArray(aiSettings.banned_phrases) ? aiSettings.banned_phrases : [];
+    const system =
+      `You write personalized B2B cold emails on behalf of ${aiSettings.brand_name}.\n\n` +
+      `Brand context:\n- Brand: ${aiSettings.brand_name}\n- Website: ${aiSettings.brand_website}\n- One-liner: ${aiSettings.brand_one_liner}\n\n` +
+      `Tone:\n${aiSettings.tone}\n\n` +
+      "Rules:\n" +
+      "- Use only facts from recent_activity (including Domain intel) and knowledge_context\n" +
+      "- If evidence is weak, ask 1 short clarifying question instead of guessing\n" +
+      "- Keep it 80-120 words\n" +
+      "- 1 clear CTA (use the CTA provided)\n" +
+      "- No emojis, no markdown, no exclamation points\n" +
+      "- Avoid hype/buzzwords\n" +
+      `- Do not mention these phrases: ${banned.map((x: string) => `"${x}"`).join(", ")}\n\n` +
+      "Output JSON only: { email_body: string, subject_lines: string[], personalization_score: number, confidence_score: number, reasoning: string }\n";
+
+    const user = JSON.stringify({
+      prospect: { name, title, company, industry },
+      recent_activity,
+      pain_points,
+      source,
+      cta: { text: aiSettings.cta_text, url: aiSettings.cta_url },
+      sender: { name: aiSettings.sender_name, title: aiSettings.sender_title, company: aiSettings.sender_company, credibility_line: aiSettings.credibility_line },
+      knowledge_context: knowledgeContext,
     });
 
-    const content = completion.choices?.[0]?.message?.content ?? "";
-    const parsed = extractJson(content) as OutreachResult | null;
+    let completionContent = "";
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature: 0.6,
+        max_tokens: 700,
+      });
+      completionContent = completion.choices?.[0]?.message?.content ?? "";
+      if (!banned.length) break;
+      const lower = completionContent.toLowerCase();
+      const hit = banned.find((p: string) => p && lower.includes(String(p).toLowerCase()));
+      if (!hit) break;
+    }
+
+    const parsed = extractJson(completionContent) as OutreachResult | null;
     if (!parsed || !Array.isArray(parsed.subject_lines) || typeof parsed.email_body !== "string") {
       return NextResponse.json({ error: "Model returned invalid JSON" }, { status: 502 });
     }
@@ -143,9 +227,20 @@ export async function POST(req: NextRequest) {
       confidence_score: result.confidence_score,
       status: "draft",
     };
-    const insertRes = await adminDb.from("email_drafts").insert(insertPayload).select("id").single();
-    if (insertRes.error) console.error("generate-outreach save error", insertRes.error);
-    const emailDraftId = String((insertRes.data as any)?.id || "").trim() || null;
+    let draftPayload: Record<string, any> = { ...insertPayload };
+    let insertRes: any = null;
+    for (let i = 0; i < 12; i++) {
+      const res = await adminDb.from("email_drafts").insert(draftPayload).select("id").single();
+      if (!res.error) { insertRes = res; break; }
+      const missing = extractMissingColumnName(res.error.message || "", "email_drafts");
+      if (missing && Object.prototype.hasOwnProperty.call(draftPayload, missing)) {
+        delete (draftPayload as any)[missing];
+        continue;
+      }
+      break;
+    }
+    if (!insertRes || insertRes.error) console.error("generate-outreach save error", insertRes?.error || "unknown");
+    const emailDraftId = String((insertRes?.data as any)?.id || "").trim() || null;
     if (prospect_id) {
       await adminDb.from("prospects").update({ status: "email_ready" }).eq("id", prospect_id);
     }

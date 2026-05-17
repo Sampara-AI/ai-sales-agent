@@ -657,9 +657,9 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
             <div id="quick-demo" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="text-sm font-semibold text-slate-900">Send to a prospect</div>
               <form action={sendDemoEmail} className="mt-4 space-y-3">
-                <input name="to_email" placeholder="Your email (to receive the demo)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="name" placeholder="Your name (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="title" placeholder="Your title (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
+                <input name="to_email" placeholder="Prospect email" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
+                <input name="name" placeholder="Prospect name (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
+                <input name="title" placeholder="Prospect title (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
                 <input name="company" placeholder="Company (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
                 <button type="submit" className="w-full rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
                   Generate + Send
