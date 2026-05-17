@@ -24,7 +24,7 @@ export default function CampaignCsvImporter({ campaignId }: { campaignId: string
       if (!res.ok) throw new Error(String(json?.error || "Import failed"));
       const imported = typeof json?.imported === "number" ? json.imported : 0;
       const skipped = typeof json?.skipped_duplicates === "number" ? json.skipped_duplicates : 0;
-      window.location.href = `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&import=${encodeURIComponent(String(imported))}&skipped=${encodeURIComponent(String(skipped))}#process-${encodeURIComponent(campaignId)}`;
+      window.location.href = `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&import=${encodeURIComponent(String(imported))}&skipped=${encodeURIComponent(String(skipped))}&stage=enrich#stage`;
     } catch (e: any) {
       setError(String(e?.message || "Import failed"));
     } finally {
@@ -56,4 +56,3 @@ export default function CampaignCsvImporter({ campaignId }: { campaignId: string
     </div>
   );
 }
-

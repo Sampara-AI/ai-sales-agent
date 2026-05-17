@@ -73,6 +73,17 @@ export default function InboxPage() {
 
   const threadMessages = messages.filter((m) => m.thread_external_id === selectedThread).sort((a, b) => a.created_at.localeCompare(b.created_at));
   const latestInbound = [...threadMessages].reverse().find((m) => m.direction === "inbound") || null;
+  const signal = useMemo(() => {
+    const intent = String(latestInbound?.intent || "").trim().toLowerCase();
+    const esc = Boolean(latestInbound?.escalated);
+    const conf = typeof latestInbound?.ai_confidence === "number" ? latestInbound.ai_confidence : null;
+    if (intent === "unsubscribe") return { label: "COLD", cls: "border-slate-200 bg-slate-50 text-slate-700" };
+    if (esc) return { label: "HOT", cls: "border-rose-200 bg-rose-50 text-rose-900" };
+    if (["pricing_inquiry", "meeting_intent", "implementation_inquiry", "technical_evaluation"].includes(intent)) return { label: "HOT", cls: "border-rose-200 bg-rose-50 text-rose-900" };
+    if (intent === "objection") return { label: "WARM", cls: "border-amber-200 bg-amber-50 text-amber-900" };
+    if (intent === "curiosity") return { label: conf != null && conf >= 70 ? "WARM" : "NEUTRAL", cls: conf != null && conf >= 70 ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-700" };
+    return { label: "NEUTRAL", cls: "border-slate-200 bg-slate-50 text-slate-700" };
+  }, [latestInbound]);
 
   const onRespond = async () => {
     try {
@@ -171,9 +182,12 @@ export default function InboxPage() {
             <div className="flex items-center justify-between">
               <div className="text-sm font-semibold text-slate-800">Thread Details</div>
               {latestInbound?.intent && (
-                <span className={`rounded-full border px-3 py-1 text-xs ${latestInbound.escalated ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
-                  {latestInbound.intent}{latestInbound.ai_confidence != null ? ` • ${latestInbound.ai_confidence}/100` : ""}
-                </span>
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full border px-3 py-1 text-xs ${signal.cls}`}>{signal.label}</span>
+                  <span className={`rounded-full border px-3 py-1 text-xs ${latestInbound.escalated ? "border-amber-200 bg-amber-50 text-amber-900" : "border-slate-200 bg-slate-50 text-slate-700"}`}>
+                    {latestInbound.intent}{latestInbound.ai_confidence != null ? ` • ${latestInbound.ai_confidence}/100` : ""}
+                  </span>
+                </div>
               )}
             </div>
             {threadMessages.length === 0 ? (

@@ -44,7 +44,7 @@ function AdminContent() {
   const [deadJobs, setDeadJobs] = useState<QueueJob[]>([]);
   const [queueBusy, setQueueBusy] = useState(false);
   const [knowledgeDocs, setKnowledgeDocs] = useState<KnowledgeDoc[]>([]);
-  const [knowledgeFile, setKnowledgeFile] = useState<File | null>(null);
+  const [knowledgeFiles, setKnowledgeFiles] = useState<File[]>([]);
   const [knowledgeSource, setKnowledgeSource] = useState("");
   const [knowledgeBusy, setKnowledgeBusy] = useState(false);
   const [knowledgeBanner, setKnowledgeBanner] = useState<string | null>(null);
@@ -224,18 +224,23 @@ function AdminContent() {
   };
 
   const uploadKnowledge = async () => {
-    if (!knowledgeFile) { setKnowledgeBanner("Select a document first"); return; }
+    if (knowledgeFiles.length === 0) { setKnowledgeBanner("Select at least one document first"); return; }
     try {
       setKnowledgeBusy(true);
       setKnowledgeBanner(null);
-      const fd = new FormData();
-      fd.append("file", knowledgeFile);
-      if (knowledgeSource.trim()) fd.append("source", knowledgeSource.trim());
-      const res = await fetch("/api/admin/knowledge", { method: "POST", body: fd });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(json?.error || "Upload failed");
-      setKnowledgeBanner(`Uploaded and indexed: ${knowledgeFile.name} (${json?.chunks || 0} chunks)`);
-      setKnowledgeFile(null);
+      let okCount = 0;
+      for (const f of knowledgeFiles) {
+        setKnowledgeBanner(`Indexing ${f.name}… (${okCount}/${knowledgeFiles.length})`);
+        const fd = new FormData();
+        fd.append("file", f);
+        if (knowledgeSource.trim()) fd.append("source", knowledgeSource.trim());
+        const res = await fetch("/api/admin/knowledge", { method: "POST", body: fd });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(json?.error || `Upload failed: ${f.name}`);
+        okCount++;
+      }
+      setKnowledgeBanner(`Uploaded and indexed ${okCount} document(s).`);
+      setKnowledgeFiles([]);
       setKnowledgeSource("");
       const list = await fetch("/api/admin/knowledge");
       const lj = await list.json().catch(() => ({}));
@@ -407,9 +412,9 @@ function AdminContent() {
               <div className="mt-2 text-xs text-slate-500">Upload product spec sheets, FAQs, and offering docs to ground inbound reply handling.</div>
               {knowledgeBanner && <div className="mt-3 rounded border border-slate-200 bg-white p-2 text-xs text-slate-800">{knowledgeBanner}</div>}
               <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
-                <input type="file" accept=".pdf,.txt,.md,text/plain,application/pdf" onChange={(e) => setKnowledgeFile(e.currentTarget.files?.[0] || null)} className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-700" />
+                <input type="file" multiple accept=".pdf,.txt,.md,text/plain,application/pdf" onChange={(e) => setKnowledgeFiles(Array.from(e.currentTarget.files || []))} className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-700" />
                 <input value={knowledgeSource} onChange={(e) => setKnowledgeSource(e.target.value)} placeholder="Source label (optional)" className="rounded border border-slate-200 bg-white p-2 text-xs text-slate-700" />
-                <button onClick={uploadKnowledge} disabled={knowledgeBusy || !knowledgeFile} className="rounded bg-slate-900 px-3 py-2 text-xs text-white disabled:opacity-60">{knowledgeBusy ? "Indexing..." : "Upload & Index"}</button>
+                <button onClick={uploadKnowledge} disabled={knowledgeBusy || knowledgeFiles.length === 0} className="rounded bg-slate-900 px-3 py-2 text-xs text-white disabled:opacity-60">{knowledgeBusy ? "Indexing..." : "Upload & Index"}</button>
               </div>
               <div className="mt-3 space-y-2">
                 {knowledgeDocs.length === 0 ? (

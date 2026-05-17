@@ -67,6 +67,7 @@ async function processCsvCampaign(formData: FormData) {
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   if (!demoMode) redirect("/dashboard/hunting");
   const campaignId = String(formData.get("campaign_id") || "").trim();
+  const mode = String(formData.get("mode") || "process").trim().toLowerCase();
   if (!campaignId) redirect("/dashboard/hunting");
 
   const admin = createAdminClient();
@@ -98,15 +99,18 @@ async function processCsvCampaign(formData: FormData) {
       continue;
     }
 
-    try {
-      const enr = await fetch(`${baseUrl}/api/prospects/${encodeURIComponent(p.id)}/enrich-domain`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
-        body: JSON.stringify({ run_now: true, enqueue_only: false }),
-        cache: "no-store",
-      });
-      if (enr.ok) enriched++;
-    } catch {}
+    if (mode === "enrich" || String(p.status || "").toLowerCase() !== "researched") {
+      try {
+        const enr = await fetch(`${baseUrl}/api/prospects/${encodeURIComponent(p.id)}/enrich-domain`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
+          body: JSON.stringify({ run_now: true, enqueue_only: false }),
+          cache: "no-store",
+        });
+        if (enr.ok) enriched++;
+      } catch {}
+    }
+    if (mode === "enrich") continue;
 
     let subject = "";
     let body = "";
@@ -143,9 +147,10 @@ async function processCsvCampaign(formData: FormData) {
     }
   }
 
-  redirect(
-    `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&process=${encodeURIComponent(String(sent))}&enriched=${encodeURIComponent(String(enriched))}&drafted=${encodeURIComponent(String(drafted))}&skipped=${encodeURIComponent(String(skipped))}&failed=${encodeURIComponent(String(failed))}`,
-  );
+  if (mode === "enrich") {
+    redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=process&enriched=${encodeURIComponent(String(enriched))}#stage`);
+  }
+  redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&process=${encodeURIComponent(String(sent))}&enriched=${encodeURIComponent(String(enriched))}&drafted=${encodeURIComponent(String(drafted))}&skipped=${encodeURIComponent(String(skipped))}&failed=${encodeURIComponent(String(failed))}#stage`);
 }
 
 async function sendDemoEmail(formData: FormData) {
@@ -290,6 +295,9 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
 
   const selectedCampaignIdRaw = typeof searchParams?.campaign === "string" ? searchParams?.campaign : "";
   const selectedCampaignId = selectedCampaignIdRaw.trim();
+  const stageRaw = typeof searchParams?.stage === "string" ? searchParams?.stage : "";
+  const stage = String(stageRaw || "import").trim().toLowerCase();
+  const effectiveStage = stage === "enrich" || stage === "process" || stage === "inbox" ? stage : "import";
 
   const [campaignsRes, emailsRes, repliesRes, meetingsRes, runsRes, prospectsRes, selectedProspectsRes] = await Promise.all([
     admin.from("hunting_campaigns").select("id,name,status,found_count,contacted_count,replied_count,booked_count,last_run_at,created_at").order("created_at", { ascending: false }),
@@ -436,8 +444,9 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                         </a>
                         <form action={processCsvCampaign}>
                           <input type="hidden" name="campaign_id" value={String(c.id)} />
+                          <input type="hidden" name="mode" value="process" />
                           <button id={`process-${String(c.id)}`} type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
-                            Enrich + Draft + Auto-send
+                            Process
                           </button>
                         </form>
                         <form method="post" action={`/api/campaigns/${String(c.id)}/hunt`}>
@@ -473,12 +482,65 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                   <div className="text-sm font-semibold text-slate-900">Campaign Prospects</div>
                   <div className="text-xs text-slate-500">Campaign: {selectedCampaignId}</div>
                 </div>
-            {importNotice && (
-              <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                <div className="font-semibold">Next → click “Enrich + Draft + Auto-send”</div>
-                <div className="mt-1 text-xs text-slate-500">This runs domain enrichment, drafts emails, and sends automatically (no manual steps).</div>
-              </div>
-            )}
+                <div id="stage" className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className={`rounded-full border px-3 py-1 text-xs ${effectiveStage === "import" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}>1 Import</span>
+                    <span className={`rounded-full border px-3 py-1 text-xs ${effectiveStage === "enrich" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}>2 Enrich</span>
+                    <span className={`rounded-full border px-3 py-1 text-xs ${effectiveStage === "process" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}>3 Process</span>
+                    <span className={`rounded-full border px-3 py-1 text-xs ${effectiveStage === "inbox" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}>4 Inbox</span>
+
+                    <a
+                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=${encodeURIComponent(effectiveStage === "import" ? "enrich" : effectiveStage === "enrich" ? "process" : "inbox")}#stage`}
+                      className="ml-auto inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
+                    >
+                      Next <span>→</span>
+                    </a>
+                    <form action={processCsvCampaign}>
+                      <input type="hidden" name="campaign_id" value={selectedCampaignId} />
+                      <input type="hidden" name="mode" value="process" />
+                      <button type="submit" className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                        Process
+                      </button>
+                    </form>
+                  </div>
+
+                  {effectiveStage === "enrich" && (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">Next → Enrich domains</div>
+                        <div className="mt-1 text-xs text-slate-500">Adds domain intel per row to improve personalization.</div>
+                      </div>
+                      <form action={processCsvCampaign}>
+                        <input type="hidden" name="campaign_id" value={selectedCampaignId} />
+                        <input type="hidden" name="mode" value="enrich" />
+                        <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                          Run Enrichment
+                        </button>
+                      </form>
+                    </div>
+                  )}
+
+                  {effectiveStage === "process" && (
+                    <div className="mt-3">
+                      <div className="font-semibold">Next → Process</div>
+                      <div className="mt-1 text-xs text-slate-500">Drafts + sends emails, then updates dashboards.</div>
+                    </div>
+                  )}
+
+                  {effectiveStage === "inbox" && (
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <div className="font-semibold">Next → Inbox signals + smart reply</div>
+                        <div className="mt-1 text-xs text-slate-500">Paste an inbound reply to classify warm/hot signals and generate a knowledge-grounded response.</div>
+                      </div>
+                      <a href="/dashboard/inbox" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Open Inbox</a>
+                    </div>
+                  )}
+
+                  {importNotice && (
+                    <div className="mt-3 text-xs text-slate-500">Imported {importNotice} rows. Use Next → to move through stages.</div>
+                  )}
+                </div>
                 <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
                   <table className="w-full text-sm">
                     <thead className="bg-slate-50 text-slate-600">
