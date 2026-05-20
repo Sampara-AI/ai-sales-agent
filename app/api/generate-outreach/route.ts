@@ -47,10 +47,13 @@ async function loadAiSettings(adminDb: any) {
     tone: "Exciting and confident, not pushy. Value-first. One clear CTA.",
     cta_text: String(process.env.EMAIL_FOOTER_LINK_TEXT || "Book a quick 15-minute chat").trim(),
     cta_url: String(process.env.EMAIL_FOOTER_LINK_URL || "https://cal.com/vpersonalize/intro").trim(),
+    qualification_line: "If helpful, what product type are you considering, what size range, and roughly how many units?",
     sender_name: String(process.env.DEFAULT_FROM_NAME || "VPersonalize").trim(),
     sender_title: String(process.env.EMAIL_SIGNATURE_TITLE || "Partnerships").trim(),
     sender_company: String(process.env.EMAIL_SIGNATURE_COMPANY || "VPersonalize").trim(),
     credibility_line: String(process.env.EMAIL_CREDIBILITY_LINE || "").trim(),
+    temperature: 0.55,
+    max_tokens: 700,
     banned_phrases: ["Tuple AI", "6 patents", "AI Architect"],
   };
   try {
@@ -59,6 +62,8 @@ async function loadAiSettings(adminDb: any) {
     if (!meta || typeof meta !== "object") return fallback;
     const merged = { ...fallback, ...meta };
     merged.banned_phrases = Array.isArray(merged.banned_phrases) ? merged.banned_phrases : fallback.banned_phrases;
+    merged.temperature = typeof merged.temperature === "number" ? merged.temperature : fallback.temperature;
+    merged.max_tokens = typeof merged.max_tokens === "number" ? merged.max_tokens : fallback.max_tokens;
     return merged;
   } catch {
     return fallback;
@@ -162,6 +167,7 @@ export async function POST(req: NextRequest) {
     }
 
     const banned = Array.isArray(aiSettings.banned_phrases) ? aiSettings.banned_phrases : [];
+    const qualificationLine = String((aiSettings as any)?.qualification_line || "").trim();
     const system =
       `You write personalized B2B cold emails on behalf of ${aiSettings.brand_name}.\n\n` +
       `Brand context:\n- Brand: ${aiSettings.brand_name}\n- Website: ${aiSettings.brand_website}\n- One-liner: ${aiSettings.brand_one_liner}\n\n` +
@@ -171,6 +177,7 @@ export async function POST(req: NextRequest) {
       "- If evidence is weak, ask 1 short clarifying question instead of guessing\n" +
       "- Keep it 80-120 words\n" +
       "- 1 clear CTA (use the CTA provided)\n" +
+      (qualificationLine ? `- Include this polite qualifier line once: "${qualificationLine}"\n` : "") +
       "- No emojis, no markdown, no exclamation points\n" +
       "- Avoid hype/buzzwords\n" +
       `- Do not mention these phrases: ${banned.map((x: string) => `"${x}"`).join(", ")}\n\n` +
@@ -194,8 +201,8 @@ export async function POST(req: NextRequest) {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        temperature: 0.6,
-        max_tokens: 700,
+        temperature: Math.max(0, Math.min(1, Number((aiSettings as any)?.temperature ?? 0.55))),
+        max_tokens: Math.max(200, Math.min(1200, Number((aiSettings as any)?.max_tokens ?? 700))),
       });
       completionContent = completion.choices?.[0]?.message?.content ?? "";
       if (!banned.length) break;
@@ -259,8 +266,8 @@ export async function POST(req: NextRequest) {
         }
         if (!requireManual && toEmail) {
           const subject = result.subject_lines?.[0] || `Quick note for ${toEmail}`;
-          const fromName = process.env.DEFAULT_FROM_NAME || "Tuple AI";
-          const fromEmail = process.env.DEFAULT_FROM_EMAIL || "founder@tuple.ai";
+          const fromName = String((aiSettings as any)?.sender_name || process.env.DEFAULT_FROM_NAME || "VPersonalize").trim();
+          const fromEmail = String(process.env.DEFAULT_FROM_EMAIL || "founder@tuple.ai").trim();
           const follow1 = Math.max(1, Number(process.env.DEFAULT_FOLLOWUP_DAYS || 3));
           const nextFollow = new Date(Date.now() + follow1 * 86400000).toISOString();
           await enqueueJob(

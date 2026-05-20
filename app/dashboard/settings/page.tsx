@@ -9,10 +9,13 @@ type AiSettings = {
   tone: string;
   cta_text: string;
   cta_url: string;
+  qualification_line: string;
   sender_name: string;
   sender_title: string;
   sender_company: string;
   credibility_line: string;
+  temperature: number;
+  max_tokens: number;
   banned_phrases: string[];
 };
 
@@ -95,6 +98,7 @@ export default function AiSettingsPage() {
             <textarea value={settings.tone} onChange={(e) => setSettings((s) => (s ? { ...s, tone: e.target.value } : s))} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" rows={4} placeholder="Tone instructions" />
             <input value={settings.cta_text} onChange={(e) => setSettings((s) => (s ? { ...s, cta_text: e.target.value } : s))} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" placeholder="CTA text" />
             <input value={settings.cta_url} onChange={(e) => setSettings((s) => (s ? { ...s, cta_url: e.target.value } : s))} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" placeholder="CTA URL" />
+            <textarea value={settings.qualification_line} onChange={(e) => setSettings((s) => (s ? { ...s, qualification_line: e.target.value } : s))} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" rows={3} placeholder="Polite qualifier line (type/size/qty)" />
           </div>
         </div>
 
@@ -105,6 +109,25 @@ export default function AiSettingsPage() {
             <input value={settings.sender_title} onChange={(e) => setSettings((s) => (s ? { ...s, sender_title: e.target.value } : s))} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" placeholder="Sender title" />
             <input value={settings.sender_company} onChange={(e) => setSettings((s) => (s ? { ...s, sender_company: e.target.value } : s))} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" placeholder="Sender company" />
             <input value={settings.credibility_line} onChange={(e) => setSettings((s) => (s ? { ...s, credibility_line: e.target.value } : s))} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm" placeholder="Credibility line (optional)" />
+          </div>
+        </div>
+
+        <div className="rounded-2xl border border-slate-200 bg-white p-4">
+          <div className="text-sm font-semibold text-slate-800">LLM Settings</div>
+          <div className="mt-1 text-xs text-slate-500">Lower temperature is safer for live demos. Max tokens controls length.</div>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <input
+              value={String(settings.temperature)}
+              onChange={(e) => setSettings((s) => (s ? { ...s, temperature: Number(e.target.value) } : s))}
+              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm"
+              placeholder="temperature (0-1)"
+            />
+            <input
+              value={String(settings.max_tokens)}
+              onChange={(e) => setSettings((s) => (s ? { ...s, max_tokens: Number(e.target.value) } : s))}
+              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm"
+              placeholder="max_tokens"
+            />
           </div>
         </div>
 
@@ -123,4 +146,3 @@ export default function AiSettingsPage() {
     </div>
   );
 }
-

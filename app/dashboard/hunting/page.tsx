@@ -255,6 +255,7 @@ async function analyzeInboundReply(formData: FormData) {
   const toEmail = String(formData.get("to_email") || "").trim().toLowerCase();
   const subject = String(formData.get("subject") || "").trim();
   const body = String(formData.get("body") || "").trim();
+  const autoSend = String(formData.get("auto_send") || "").toLowerCase() === "on";
   if (!fromEmail || !toEmail || !body) redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=invalid#reply`);
 
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
@@ -277,11 +278,41 @@ async function analyzeInboundReply(formData: FormData) {
       const code = errText.includes("OPENAI_API_KEY") ? "missing_openai" : "failed";
       redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=${encodeURIComponent(code)}#reply`);
     }
+    if (autoSend) {
+      const replySubject = String((json as any)?.response_subject || "").trim();
+      const replyBody = String((json as any)?.response_body || "").trim();
+      const prospectId = String((json as any)?.thread?.prospect_id || "").trim();
+      if (!prospectId || !replyBody) {
+        redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=no_prospect#reply`);
+      }
+      const sendRes = await fetch(`${baseUrl}/api/send-email`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
+        body: JSON.stringify({
+          prospect_id: prospectId,
+          to_email: fromEmail,
+          subject: replySubject || (subject ? `Re: ${subject}` : "Re:"),
+          body: replyBody,
+          enqueue_only: false,
+          run_now: true,
+          allow_replied: true,
+        }),
+        cache: "no-store",
+      });
+      const sendJson = await sendRes.json().catch(() => ({} as any));
+      if (!sendRes.ok) {
+        redirect(
+          `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=send_failed&send_code=${encodeURIComponent(
+            String((sendJson as any)?.error || "failed").slice(0, 60),
+          )}#reply`,
+        );
+      }
+    }
   } catch {
     redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=failed#reply`);
   }
 
-  redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&thread=${encodeURIComponent(externalThreadId)}#reply`);
+  redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&thread=${encodeURIComponent(externalThreadId)}&reply=${encodeURIComponent(autoSend ? "sent" : "ok")}#reply`);
 }
 
 async function createCampaign(formData: FormData) {
@@ -593,6 +624,10 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                         <a href="/dashboard/inbox" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Open Inbox</a>
                       </div>
 
+                      {replyStatus === "sent" && <div className="mt-3 text-xs text-green-700">Reply drafted and sent.</div>}
+                      {replyStatus === "ok" && <div className="mt-3 text-xs text-green-700">Reply drafted.</div>}
+                      {replyStatus === "no_prospect" && <div className="mt-3 text-xs text-rose-700">Could not map the reply sender to an imported prospect email.</div>}
+                      {replyStatus === "send_failed" && <div className="mt-3 text-xs text-rose-700">Reply drafted but sending failed. Check RESEND settings.</div>}
                       {replyStatus === "missing_openai" && <div className="mt-3 text-xs text-rose-700">Missing OPENAI_API_KEY (required for embeddings + grounding).</div>}
                       {replyStatus === "failed" && <div className="mt-3 text-xs text-rose-700">Reply analysis failed. Check GROQ_API_KEY / OPENAI_API_KEY and try again.</div>}
                       {replyStatus === "invalid" && <div className="mt-3 text-xs text-rose-700">Fill from_email, to_email, and body.</div>}
@@ -605,6 +640,10 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                         </div>
                         <input name="subject" placeholder="Subject (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
                         <textarea name="body" placeholder="Paste reply body…" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" rows={5} />
+                        <label className="flex items-center gap-2 text-xs text-slate-700">
+                          <input name="auto_send" type="checkbox" defaultChecked className="h-4 w-4 rounded border-slate-300" />
+                          Auto-send reply now (recommended for demo)
+                        </label>
                         <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Analyze Reply</button>
                       </form>
 

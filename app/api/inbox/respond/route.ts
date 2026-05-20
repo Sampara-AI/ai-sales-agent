@@ -22,6 +22,31 @@ function vectorLiteral(vec: number[]) {
   return `[${vec.join(",")}]`;
 }
 
+async function loadAiSettings(admin: any) {
+  const fallback = {
+    brand_name: String(process.env.NEXT_PUBLIC_BRAND_NAME || process.env.DEFAULT_FROM_NAME || "VPersonalize").trim(),
+    brand_website: String(process.env.EMAIL_BRAND_URL || process.env.NEXT_PUBLIC_BRAND_URL || "https://www.vpersonalize.com").trim(),
+    cta_text: String(process.env.EMAIL_FOOTER_LINK_TEXT || "Book a quick 15-minute chat").trim(),
+    cta_url: String(process.env.EMAIL_FOOTER_LINK_URL || "https://cal.com/vpersonalize/intro").trim(),
+    qualification_line: "If helpful, what product type are you considering, what size range, and roughly how many units?",
+    temperature: 0.2,
+    max_tokens: 700,
+    banned_phrases: ["Tuple AI", "6 patents", "AI Architect"],
+  };
+  try {
+    const res = await admin.from("audit_events").select("meta").eq("action", "ai_settings").order("created_at", { ascending: false }).limit(1);
+    const meta = ((res.data || []) as any[])[0]?.meta;
+    if (!meta || typeof meta !== "object") return fallback;
+    const merged = { ...fallback, ...meta };
+    merged.banned_phrases = Array.isArray(merged.banned_phrases) ? merged.banned_phrases : fallback.banned_phrases;
+    merged.temperature = typeof merged.temperature === "number" ? merged.temperature : fallback.temperature;
+    merged.max_tokens = typeof merged.max_tokens === "number" ? merged.max_tokens : fallback.max_tokens;
+    return merged;
+  } catch {
+    return fallback;
+  }
+}
+
 export async function POST(req: NextRequest) {
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
@@ -49,6 +74,7 @@ export async function POST(req: NextRequest) {
   if (!fromEmail || !toEmail || !messageBody) return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
 
   const admin = createAdminClient();
+  const aiSettings = await loadAiSettings(admin as any);
 
   let prospectId: string | null = null;
   try {
@@ -85,6 +111,12 @@ export async function POST(req: NextRequest) {
   if (msgIns.error) return NextResponse.json({ error: msgIns.error.message }, { status: 500 });
   const inboxMessageId = String((msgIns.data as any)?.id || "").trim();
 
+  if (prospectId) {
+    try {
+      await admin.from("prospects").update({ replied: true, status: "replied" }).eq("id", prospectId);
+    } catch {}
+  }
+
   const openai = new OpenAI({ apiKey: openaiKey });
   const queryText = [subject, messageBody].filter(Boolean).join("\n\n").slice(0, 8000);
   const emb = await openai.embeddings.create({ model: "text-embedding-3-small", input: queryText });
@@ -99,13 +131,20 @@ export async function POST(req: NextRequest) {
   }));
 
   const groq = new Groq({ apiKey: groqKey });
+  const banned = Array.isArray((aiSettings as any)?.banned_phrases) ? (aiSettings as any).banned_phrases : [];
+  const qualificationLine = String((aiSettings as any)?.qualification_line || "").trim();
   const system =
-    "You are a production email assistant for enterprise outbound. You must be grounded and product-aware.\n\n" +
+    `You are a production email assistant writing on behalf of ${String((aiSettings as any)?.brand_name || "VPersonalize")}.\n\n` +
+    `Brand website: ${String((aiSettings as any)?.brand_website || "https://www.vpersonalize.com")}\n` +
+    `CTA: ${String((aiSettings as any)?.cta_text || "Book a quick 15-minute chat")} (${String((aiSettings as any)?.cta_url || "https://cal.com/vpersonalize/intro")})\n\n` +
+    "You must be grounded and product-aware.\n\n" +
     "You will receive:\n- inbound_email (subject/body)\n- knowledge_context (snippets with chunk_id)\n\n" +
     "Task:\n1) Classify intent into one of: curiosity | pricing_inquiry | technical_evaluation | implementation_inquiry | meeting_intent | objection | unsubscribe\n2) Draft a concise businesslike reply (no hype). Use only the provided knowledge snippets as factual basis.\n3) If knowledge is insufficient, ask 1-2 clarifying questions and do NOT invent details.\n4) Decide whether to escalate to a human when intent is pricing_inquiry OR meeting_intent OR implementation_inquiry OR technical_evaluation.\n\n" +
     "Return JSON only with this schema:\n" +
     "{ intent: string, escalate: boolean, confidence: number, summary: string, next_action: string, response_subject: string, response_body: string, references: { chunk_id: string, note: string }[] }\n\n" +
-    "Rules:\n- confidence: 0-100\n- response_body: 80-150 words\n- no emojis, no markdown, no exclamation points\n- references should cite which chunk_id(s) were used and why (internal traceability)";
+    "Rules:\n- confidence: 0-100\n- response_body: 80-150 words\n- no emojis, no markdown, no exclamation points\n- references should cite which chunk_id(s) were used and why (internal traceability)" +
+    (qualificationLine ? `\n- Include this polite qualifier line once when relevant: "${qualificationLine}"` : "") +
+    (banned.length ? `\n- Do not mention these phrases: ${banned.map((x: string) => `"${x}"`).join(", ")}` : "");
 
   const user = JSON.stringify({
     inbound_email: { subject, from_email: fromEmail, to_email: toEmail, body: messageBody },
@@ -118,8 +157,8 @@ export async function POST(req: NextRequest) {
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-    temperature: 0.2,
-    max_tokens: 700,
+    temperature: Math.max(0, Math.min(1, Number((aiSettings as any)?.temperature ?? 0.2))),
+    max_tokens: Math.max(200, Math.min(1200, Number((aiSettings as any)?.max_tokens ?? 700))),
   });
 
   const content = completion.choices?.[0]?.message?.content ?? "";

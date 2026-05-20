@@ -11,10 +11,13 @@ type AiSettings = {
   tone: string;
   cta_text: string;
   cta_url: string;
+  qualification_line: string;
   sender_name: string;
   sender_title: string;
   sender_company: string;
   credibility_line: string;
+  temperature: number;
+  max_tokens: number;
   banned_phrases: string[];
 };
 
@@ -25,13 +28,16 @@ function defaults(): AiSettings {
     brand_name: String(process.env.NEXT_PUBLIC_BRAND_NAME || "VPersonalize").trim(),
     brand_website: brandUrl,
     brand_one_liner: String(process.env.NEXT_PUBLIC_BRAND_ONE_LINER || "Custom teamwear & merch made easy for clubs, teams, and brands.").trim(),
-    tone: "Exciting and confident, not pushy. Value-first. One clear CTA.",
+    tone: "Exciting and confident, not pushy. Value-first. Sound human. Keep it concise. No hype.",
     cta_text: String(process.env.EMAIL_FOOTER_LINK_TEXT || "Book a quick 15-minute chat").trim(),
     cta_url: String(process.env.EMAIL_FOOTER_LINK_URL || "https://cal.com/vpersonalize/intro").trim(),
+    qualification_line: "If helpful, what product type are you considering, what size range, and roughly how many units?",
     sender_name: fromName,
     sender_title: String(process.env.EMAIL_SIGNATURE_TITLE || "Partnerships").trim(),
     sender_company: String(process.env.EMAIL_SIGNATURE_COMPANY || "VPersonalize").trim(),
     credibility_line: String(process.env.EMAIL_CREDIBILITY_LINE || "We help teams launch on-brand customization without operational headaches.").trim(),
+    temperature: 0.55,
+    max_tokens: 700,
     banned_phrases: ["Tuple AI", "6 patents", "AI Architect"],
   };
 }
@@ -40,6 +46,8 @@ function sanitize(input: any): AiSettings {
   const d = defaults();
   const obj = input && typeof input === "object" ? input : {};
   const arr = Array.isArray(obj.banned_phrases) ? obj.banned_phrases : d.banned_phrases;
+  const t = Number(obj.temperature ?? d.temperature);
+  const mt = Number(obj.max_tokens ?? d.max_tokens);
   return {
     brand_name: String(obj.brand_name ?? d.brand_name).trim(),
     brand_website: String(obj.brand_website ?? d.brand_website).trim(),
@@ -47,10 +55,13 @@ function sanitize(input: any): AiSettings {
     tone: String(obj.tone ?? d.tone).trim(),
     cta_text: String(obj.cta_text ?? d.cta_text).trim(),
     cta_url: String(obj.cta_url ?? d.cta_url).trim(),
+    qualification_line: String(obj.qualification_line ?? d.qualification_line).trim(),
     sender_name: String(obj.sender_name ?? d.sender_name).trim(),
     sender_title: String(obj.sender_title ?? d.sender_title).trim(),
     sender_company: String(obj.sender_company ?? d.sender_company).trim(),
     credibility_line: String(obj.credibility_line ?? d.credibility_line).trim(),
+    temperature: Number.isFinite(t) ? Math.max(0, Math.min(1, t)) : d.temperature,
+    max_tokens: Number.isFinite(mt) ? Math.max(200, Math.min(1200, mt)) : d.max_tokens,
     banned_phrases: arr.map((x: any) => String(x).trim()).filter(Boolean).slice(0, 30),
   };
 }
@@ -113,4 +124,3 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ success: true, settings });
 }
-
