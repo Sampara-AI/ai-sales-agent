@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 const nunito = Nunito_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "700", "800"] });
 
-type StepKey = "upload" | "enrich" | "generate" | "review" | "send" | "replies";
+type StepKey = "upload" | "enrich" | "generate" | "review" | "approve" | "send";
 
 export default async function HuntingDashboardPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const admin = createAdminClient();
@@ -18,7 +18,8 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
 
   const stepRaw = typeof searchParams?.step === "string" ? searchParams?.step : "";
   const step = String(stepRaw || "upload").trim().toLowerCase() as StepKey;
-  const initialStep: StepKey = step === "upload" || step === "enrich" || step === "generate" || step === "review" || step === "send" || step === "replies" ? step : "upload";
+  const initialStep: StepKey =
+    step === "upload" || step === "enrich" || step === "generate" || step === "review" || step === "approve" || step === "send" ? step : "upload";
 
   if (!campaignId) {
     return (
@@ -71,4 +72,3 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
     </div>
   );
 }
-

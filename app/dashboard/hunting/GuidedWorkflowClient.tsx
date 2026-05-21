@@ -25,13 +25,13 @@ type Draft = {
   created_at: string;
 };
 
-type StepKey = "upload" | "enrich" | "generate" | "review" | "send" | "replies";
+type StepKey = "upload" | "enrich" | "generate" | "review" | "approve" | "send";
 
 function isValidEmail(email: string) {
   return /[^@\s]+@[^@\s]+\.[^@\s]+/.test(email);
 }
 
-const DEMO_MAX_ROWS = 10;
+const DEMO_MAX_ROWS = 5;
 
 function Spinner() {
   return <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />;
@@ -52,7 +52,7 @@ export default function GuidedWorkflowClient(props: {
   const [prospects, setProspects] = useState<Prospect[]>(props.initialProspects);
   const [drafts, setDrafts] = useState<Draft[]>(props.initialDrafts);
 
-  const [busy, setBusy] = useState<null | { step: StepKey; label: string }>(null);
+  const [busy, setBusy] = useState<null | { step: StepKey | "replies"; label: string }>(null);
   const [banner, setBanner] = useState<string>("");
   const [rowState, setRowState] = useState<
     Record<
@@ -82,8 +82,8 @@ export default function GuidedWorkflowClient(props: {
     enrich: useRef<HTMLDivElement | null>(null),
     generate: useRef<HTMLDivElement | null>(null),
     review: useRef<HTMLDivElement | null>(null),
+    approve: useRef<HTMLDivElement | null>(null),
     send: useRef<HTMLDivElement | null>(null),
-    replies: useRef<HTMLDivElement | null>(null),
   };
 
   const draftByProspect = useMemo(() => {
@@ -105,15 +105,17 @@ export default function GuidedWorkflowClient(props: {
     const allEnriched = hasProspects && enrichedCount === activeProspects.length;
     const draftsCount = Object.keys(draftByProspect).length;
     const anyDrafted = draftsCount > 0;
+    const approvedCount = Object.values(approved).filter(Boolean).length;
+    const anyApproved = approvedCount > 0;
     return {
       upload: true,
       enrich: hasProspects,
       generate: allEnriched,
       review: anyDrafted,
-      send: anyDrafted,
-      replies: true,
+      approve: anyDrafted,
+      send: anyApproved,
     };
-  }, [prospects, draftByProspect]);
+  }, [activeProspects, draftByProspect, approved]);
 
   useEffect(() => {
     try {
@@ -153,9 +155,9 @@ export default function GuidedWorkflowClient(props: {
             ? refs.generate.current
             : k === "review"
               ? refs.review.current
-              : k === "send"
-                ? refs.send.current
-                : refs.replies.current;
+              : k === "approve"
+                ? refs.approve.current
+                : refs.send.current;
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -168,7 +170,15 @@ export default function GuidedWorkflowClient(props: {
 
   const goStep = async (next: StepKey) => {
     if (!unlock[next]) {
-      setBanner(next === "enrich" ? "Upload CSV first." : next === "generate" ? "Run enrichment first." : "Complete previous step first.");
+      setBanner(
+        next === "enrich"
+          ? "Upload CSV first."
+          : next === "generate"
+            ? "Run enrichment first."
+            : next === "review" || next === "approve"
+              ? "Generate drafts first."
+              : "Approve at least one draft first.",
+      );
       return;
     }
     setStep(next);
@@ -295,14 +305,24 @@ export default function GuidedWorkflowClient(props: {
     setBanner("All drafts approved");
   };
 
-  const runSend = async (mode: "selected" | "all") => {
+  const runSendApproved = async () => {
     setBanner("");
     setBusy({ step: "send", label: "Sending…" });
 
-    const list = mode === "all" ? activeProspects : activeProspects.filter((p) => approved[p.id]);
+    const list = activeProspects.filter((p) => approved[p.id]);
     const total = list.length;
+    if (total === 0) {
+      setBusy(null);
+      setBanner("Approve at least one draft first.");
+      return;
+    }
     setProgress({ current: 0, total, label: "Sending…" });
     let done = 0;
+    setRowState((s) => {
+      const next = { ...s };
+      for (const p of list) next[p.id] = { ...(next[p.id] || { state: "pending" }), state: "queued" };
+      return next;
+    });
     for (const p of list) {
       const toEmail = String(p.email || "").trim().toLowerCase();
       const d = draftByProspect[p.id] || null;
@@ -311,13 +331,13 @@ export default function GuidedWorkflowClient(props: {
       const subject = String((d?.subject_lines || [])[0] || fallbackSubject || "Quick question").trim();
       const body = String(d?.body || fallbackBody || "").trim();
       if (!isValidEmail(toEmail) || !body) {
-        setRowState((s) => ({ ...s, [p.id]: { state: "failed", error: "Missing email or draft" } }));
+        setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "queued" }), state: "failed", error: "Missing email or draft" } }));
         done += 1;
         setProgress({ current: done, total, label: "Sending…" });
         continue;
       }
 
-      setRowState((s) => ({ ...s, [p.id]: { state: "sending" } }));
+      setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "queued" }), state: "sending" } }));
       try {
         const res = await fetch(`/api/send-email`, {
           method: "POST",
@@ -334,9 +354,9 @@ export default function GuidedWorkflowClient(props: {
         });
         const j = await res.json().catch(() => ({} as any));
         if (!res.ok || !j?.success) throw new Error(String(j?.error || "send failed"));
-        setRowState((s) => ({ ...s, [p.id]: { state: "sent" } }));
+        setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "sending" }), state: "sent" } }));
       } catch (e: any) {
-        setRowState((s) => ({ ...s, [p.id]: { state: "failed", error: String(e?.message || "send failed") } }));
+        setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "sending" }), state: "failed", error: String(e?.message || "send failed") } }));
       }
       done += 1;
       setProgress({ current: done, total, label: "Sending…" });
@@ -346,9 +366,9 @@ export default function GuidedWorkflowClient(props: {
     setBusy(null);
     setProgress(null);
     setBanner("Send complete");
-    setStep("replies");
-    setUrl(campaignId, "replies");
-    scrollTo("replies");
+    setStep("send");
+    setUrl(campaignId, "send");
+    scrollTo("send");
   };
 
   const generateReply = async () => {
@@ -414,6 +434,18 @@ export default function GuidedWorkflowClient(props: {
       await goStep("generate");
       await runGenerate();
       return;
+    }
+    if (k === "send") {
+      if (!unlock.approve) {
+        setBanner("Generate drafts first.");
+        return;
+      }
+      if (!unlock.send) {
+        setBanner("Approve at least one draft first.");
+        await goStep("approve");
+        return;
+      }
+      return goStep("send");
     }
     return goStep(k);
   };
@@ -481,18 +513,18 @@ export default function GuidedWorkflowClient(props: {
         {([
           { key: "upload", label: "1 Upload CSV" },
           { key: "enrich", label: "2 Enrich" },
-          { key: "generate", label: "3 Generate" },
-          { key: "review", label: "4 Review" },
-          { key: "send", label: "5 Send" },
-          { key: "replies", label: "6 Replies" },
+          { key: "generate", label: "3 Generate Drafts" },
+          { key: "review", label: "4 Review Drafts" },
+          { key: "approve", label: "5 Approve" },
+          { key: "send", label: "6 Send" },
         ] as Array<{ key: StepKey; label: string }>).map((s) => {
-          const enabled = unlock[s.key];
+          const enabled = !!unlock[s.key] || s.key === "upload" || s.key === "review" || s.key === "approve";
           const active = step === s.key;
           return (
             <button
               key={s.key}
               type="button"
-              disabled={!enabled || !!busy}
+              disabled={!!busy}
               onClick={() => onStepClick(s.key)}
               className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm ${
                 active
@@ -601,21 +633,36 @@ export default function GuidedWorkflowClient(props: {
 
           <div ref={refs.review}>
             <div className="text-sm font-semibold text-slate-900">4) Review</div>
-            <div className="mt-1 text-xs text-slate-600">Approve individual drafts or approve all.</div>
+            <div className="mt-1 text-xs text-slate-600">Open drafts below to review subject, personalization, and KB grounding.</div>
+            <div className="mt-3">
+              <button
+                type="button"
+                onClick={() => goStep("approve")}
+                disabled={!!busy}
+                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+              >
+                Continue to Approve <span>→</span>
+              </button>
+            </div>
+          </div>
+
+          <div ref={refs.approve}>
+            <div className="text-sm font-semibold text-slate-900">5) Approve</div>
+            <div className="mt-1 text-xs text-slate-600">Approve drafts to enable sending. Approve All enables “Send all approved”.</div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={approveAll}
-                disabled={!unlock.review || !!busy}
-                className={`rounded-xl border px-4 py-2 text-sm ${unlock.review && !busy ? "border-slate-200 bg-white text-slate-700 hover:bg-slate-50" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"}`}
+                disabled={!!busy}
+                className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
               >
                 Approve all
               </button>
               <button
                 type="button"
                 onClick={() => goStep("send")}
-                disabled={!unlock.review || !!busy}
-                className={`rounded-xl px-4 py-2 text-sm ${unlock.review && !busy ? "bg-slate-900 text-white" : "cursor-not-allowed border border-slate-200 bg-white text-slate-400"}`}
+                disabled={!!busy}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
               >
                 Continue to Send →
               </button>
@@ -624,84 +671,17 @@ export default function GuidedWorkflowClient(props: {
 
           <div ref={refs.send}>
             <div className="text-sm font-semibold text-slate-900">5) Send</div>
-            <div className="mt-1 text-xs text-slate-600">Queued → sending → sent. Failures show inline error.</div>
+            <div className="mt-1 text-xs text-slate-600">queued → sending → sent → failed. Failures show inline error.</div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => runSend("selected")}
-                disabled={!unlock.send || !!busy || Object.values(approved).filter(Boolean).length === 0}
-                className={`rounded-xl border px-4 py-2 text-sm ${unlock.send && !busy ? "border-slate-200 bg-white text-slate-700 hover:bg-slate-50" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"}`}
+                onClick={runSendApproved}
+                disabled={!!busy}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
               >
-                Send selected
-              </button>
-              <button
-                type="button"
-                onClick={() => runSend("all")}
-                disabled={!unlock.send || !!busy}
-                className={`rounded-xl px-4 py-2 text-sm ${unlock.send && !busy ? "bg-slate-900 text-white" : "cursor-not-allowed border border-slate-200 bg-white text-slate-400"}`}
-              >
-                Send all
+                Send all approved
               </button>
             </div>
-          </div>
-
-          <div ref={refs.replies}>
-            <div className="text-sm font-semibold text-slate-900">6) Replies</div>
-            <div className="mt-1 text-xs text-slate-600">Generate Response → Send Response.</div>
-
-            <div className="mt-3 grid grid-cols-1 gap-2" id="reply">
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <input
-                  value={replyInput.from_email}
-                  onChange={(e) => setReplyInput((s) => ({ ...s, from_email: e.currentTarget.value }))}
-                  placeholder="From (client email)"
-                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900"
-                  disabled={!!busy}
-                />
-                <input
-                  value={replyInput.to_email}
-                  onChange={(e) => setReplyInput((s) => ({ ...s, to_email: e.currentTarget.value }))}
-                  placeholder="To (your sending inbox)"
-                  className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900"
-                  disabled={!!busy}
-                />
-              </div>
-              <input
-                value={replyInput.subject}
-                onChange={(e) => setReplyInput((s) => ({ ...s, subject: e.currentTarget.value }))}
-                placeholder="Subject (optional)"
-                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900"
-                disabled={!!busy}
-              />
-              <textarea
-                value={replyInput.body}
-                onChange={(e) => setReplyInput((s) => ({ ...s, body: e.currentTarget.value }))}
-                placeholder="Paste reply body…"
-                className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900"
-                rows={5}
-                disabled={!!busy}
-              />
-              <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={generateReply} disabled={!!busy} className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
-                  Generate Response
-                </button>
-                <button type="button" onClick={sendReply} disabled={!!busy || !replyDraft?.draft_body} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
-                  Send Response
-                </button>
-              </div>
-            </div>
-
-            {replyDraft?.draft_body && (
-              <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-xs font-semibold text-slate-800">{String(replyDraft.draft_subject || "Draft reply")}</div>
-                  <div className="text-xs text-slate-500">
-                    {String(replyDraft.intent || "—")} • {String(replyDraft.ai_confidence ?? "—")}/100 {replyDraft.escalated ? "• HOT" : ""}
-                  </div>
-                </div>
-                <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{String(replyDraft.draft_body)}</pre>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -710,7 +690,7 @@ export default function GuidedWorkflowClient(props: {
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>
-              <th className="p-2 text-left">Approve</th>
+              <th className="p-2 text-left">{step === "approve" || step === "send" ? "Approve" : ""}</th>
               <th className="p-2 text-left">Prospect</th>
               <th className="p-2 text-left">Email</th>
               <th className="p-2 text-left">State</th>
@@ -744,13 +724,15 @@ export default function GuidedWorkflowClient(props: {
                 return (
                   <tr key={pid} className="border-t border-slate-100">
                     <td className="p-2">
-                      <input
-                        type="checkbox"
-                        checked={!!approved[pid]}
-                        onChange={(e) => setApproved((s) => ({ ...s, [pid]: e.currentTarget.checked }))}
-                        disabled={(!d && !body) || !!busy}
-                        className="h-4 w-4"
-                      />
+                      {step === "approve" || step === "send" ? (
+                        <input
+                          type="checkbox"
+                          checked={!!approved[pid]}
+                          onChange={(e) => setApproved((s) => ({ ...s, [pid]: e.currentTarget.checked }))}
+                          disabled={(!d && !body) || !!busy}
+                          className="h-4 w-4"
+                        />
+                      ) : null}
                     </td>
                     <td className="p-2">{String(p.name || p.company || p.domain || "—")}</td>
                     <td className="p-2">{String(p.email || "—")}</td>
@@ -793,9 +775,68 @@ export default function GuidedWorkflowClient(props: {
       </div>
       {prospects.length > DEMO_MAX_ROWS && (
         <div className="mt-3 text-xs text-slate-500">
-          Showing first {DEMO_MAX_ROWS} rows for a smooth demo. Upload 5–10 for best results.
+          Showing first {DEMO_MAX_ROWS} rows for a smooth demo. Upload 5 for best results.
         </div>
       )}
+
+      <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-900">AI-assisted replies</div>
+        <div className="mt-1 text-xs text-slate-600">Paste a reply to generate an intelligent, grounded response (optional for demo).</div>
+
+        <div className="mt-3 grid grid-cols-1 gap-2" id="reply">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <input
+              value={replyInput.from_email}
+              onChange={(e) => setReplyInput((s) => ({ ...s, from_email: e.currentTarget.value }))}
+              placeholder="From (client email)"
+              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900"
+              disabled={!!busy}
+            />
+            <input
+              value={replyInput.to_email}
+              onChange={(e) => setReplyInput((s) => ({ ...s, to_email: e.currentTarget.value }))}
+              placeholder="To (your sending inbox)"
+              className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900"
+              disabled={!!busy}
+            />
+          </div>
+          <input
+            value={replyInput.subject}
+            onChange={(e) => setReplyInput((s) => ({ ...s, subject: e.currentTarget.value }))}
+            placeholder="Subject (optional)"
+            className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900"
+            disabled={!!busy}
+          />
+          <textarea
+            value={replyInput.body}
+            onChange={(e) => setReplyInput((s) => ({ ...s, body: e.currentTarget.value }))}
+            placeholder="Paste reply body…"
+            className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900"
+            rows={5}
+            disabled={!!busy}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={generateReply} disabled={!!busy} className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+              Generate Response
+            </button>
+            <button type="button" onClick={sendReply} disabled={!!busy || !replyDraft?.draft_body} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+              Send Response
+            </button>
+          </div>
+        </div>
+
+        {replyDraft?.draft_body && (
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-xs font-semibold text-slate-800">{String(replyDraft.draft_subject || "Draft reply")}</div>
+              <div className="text-xs text-slate-500">
+                {String(replyDraft.intent || "—")} • {String(replyDraft.ai_confidence ?? "—")}/100 {replyDraft.escalated ? "• HOT" : ""}
+              </div>
+            </div>
+            <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{String(replyDraft.draft_body)}</pre>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
