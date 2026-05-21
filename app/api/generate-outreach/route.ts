@@ -142,6 +142,7 @@ export async function POST(req: NextRequest) {
     const groq = new Groq({ apiKey });
     const openaiKey = String(process.env.OPENAI_API_KEY || "").trim();
     let knowledgeContext = "";
+    let knowledgeUsed = false;
     if (openaiKey) {
       try {
         const openai = new OpenAI({ apiKey: openaiKey });
@@ -161,7 +162,10 @@ export async function POST(req: NextRequest) {
             .map((m) => String(m.content || "").trim())
             .filter(Boolean)
             .slice(0, 6);
-          if (chunks.length) knowledgeContext = chunks.join("\n\n---\n\n").slice(0, 5000);
+          if (chunks.length) {
+            knowledgeContext = chunks.join("\n\n---\n\n").slice(0, 5000);
+            knowledgeUsed = true;
+          }
         }
       } catch {}
     }
@@ -289,7 +293,12 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
 
-    return NextResponse.json({ ...result, queued_send });
+    return NextResponse.json({
+      ...result,
+      queued_send,
+      knowledge_used: knowledgeUsed,
+      knowledge_preview: knowledgeContext ? knowledgeContext.slice(0, 800) : "",
+    });
   } catch (err: any) {
     console.error("generate-outreach error", err);
     const code = err?.status ?? 500;

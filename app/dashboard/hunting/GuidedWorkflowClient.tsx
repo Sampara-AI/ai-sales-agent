@@ -52,7 +52,7 @@ export default function GuidedWorkflowClient(props: {
 
   const [busy, setBusy] = useState<null | { step: StepKey; label: string }>(null);
   const [banner, setBanner] = useState<string>("");
-  const [rowState, setRowState] = useState<Record<string, { state: string; error?: string }>>({});
+  const [rowState, setRowState] = useState<Record<string, { state: string; error?: string; reasoning?: string; knowledge_preview?: string; knowledge_used?: boolean }>>({});
 
   const [approved, setApproved] = useState<Record<string, boolean>>({});
 
@@ -83,13 +83,13 @@ export default function GuidedWorkflowClient(props: {
     const enrichedCount = prospects.filter((p) => String(p.status || "") === "researched").length;
     const allEnriched = hasProspects && enrichedCount === prospects.length;
     const draftsCount = Object.keys(draftByProspect).length;
-    const allDrafted = hasProspects && draftsCount === prospects.length;
+    const anyDrafted = draftsCount > 0;
     return {
       upload: true,
       enrich: hasProspects,
       generate: allEnriched,
-      review: allDrafted,
-      send: allDrafted,
+      review: anyDrafted,
+      send: anyDrafted,
       replies: true,
     };
   }, [prospects, draftByProspect]);
@@ -222,7 +222,16 @@ export default function GuidedWorkflowClient(props: {
         });
         const j = await res.json().catch(() => ({} as any));
         if (!res.ok) throw new Error(String(j?.error || "generate failed"));
-        setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "pending" }), state: "email_ready" } }));
+        setRowState((s) => ({
+          ...s,
+          [p.id]: {
+            ...(s[p.id] || { state: "pending" }),
+            state: "email_ready",
+            reasoning: String(j?.reasoning || "").trim(),
+            knowledge_used: Boolean(j?.knowledge_used),
+            knowledge_preview: String(j?.knowledge_preview || "").trim(),
+          },
+        }));
       } catch (e: any) {
         setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "pending" }), state: "failed", error: String(e?.message || "generate failed") } }));
       }
@@ -554,7 +563,7 @@ export default function GuidedWorkflowClient(props: {
               <button
                 type="button"
                 onClick={() => runSend("selected")}
-                disabled={!unlock.send || !!busy}
+                disabled={!unlock.send || !!busy || Object.values(approved).filter(Boolean).length === 0}
                 className={`rounded-xl border px-4 py-2 text-sm ${unlock.send && !busy ? "border-slate-200 bg-white text-slate-700 hover:bg-slate-50" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"}`}
               >
                 Send selected
@@ -656,6 +665,9 @@ export default function GuidedWorkflowClient(props: {
                 const rs = rowState[pid] || null;
                 const state = rs?.state || String(p.status || "pending");
                 const err = rs?.error || "";
+                const reasoning = String(rs?.reasoning || "").trim();
+                const knowledgeUsed = Boolean(rs?.knowledge_used);
+                const knowledgePreview = String(rs?.knowledge_preview || "").trim();
                 const subj = d ? String((d.subject_lines || [])[0] || "").trim() : "";
                 const body = d ? String(d.body || "").trim() : "";
                 const preview = body ? body.replace(/\s+/g, " ").slice(0, 120) + (body.length > 120 ? "…" : "") : "No draft yet";
@@ -686,6 +698,20 @@ export default function GuidedWorkflowClient(props: {
                           <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
                             <div className="font-semibold text-slate-800">Personalization evidence</div>
                             <div className="mt-1 whitespace-pre-wrap">{rationale}</div>
+                          </div>
+                        )}
+                        {(reasoning || knowledgePreview) && (
+                          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="font-semibold text-slate-800">Grounding</div>
+                              <div className="text-xs text-slate-500">{knowledgeUsed ? "KB used" : "KB not used"}</div>
+                            </div>
+                            {reasoning && <div className="mt-2 whitespace-pre-wrap">{reasoning}</div>}
+                            {knowledgePreview && (
+                              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 whitespace-pre-wrap">
+                                {knowledgePreview}
+                              </div>
+                            )}
                           </div>
                         )}
                       </details>
