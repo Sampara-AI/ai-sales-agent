@@ -31,6 +31,8 @@ function isValidEmail(email: string) {
   return /[^@\s]+@[^@\s]+\.[^@\s]+/.test(email);
 }
 
+const DEMO_MAX_ROWS = 10;
+
 function Spinner() {
   return <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />;
 }
@@ -59,6 +61,7 @@ export default function GuidedWorkflowClient(props: {
   const [replyInput, setReplyInput] = useState({ from_email: "", to_email: "", subject: "", body: "", auto_send: false });
   const [replyDraft, setReplyDraft] = useState<any | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [progress, setProgress] = useState<null | { current: number; total: number; label: string }>(null);
 
   const refs = {
     top: useRef<HTMLDivElement | null>(null),
@@ -78,10 +81,15 @@ export default function GuidedWorkflowClient(props: {
     return map;
   }, [drafts]);
 
+  const activeProspects = useMemo(() => {
+    const valid = prospects.filter((p) => isValidEmail(String(p.email || "").trim().toLowerCase()));
+    return valid.slice(0, DEMO_MAX_ROWS);
+  }, [prospects]);
+
   const unlock = useMemo(() => {
-    const hasProspects = prospects.length > 0;
-    const enrichedCount = prospects.filter((p) => String(p.status || "") === "researched").length;
-    const allEnriched = hasProspects && enrichedCount === prospects.length;
+    const hasProspects = activeProspects.length > 0;
+    const enrichedCount = activeProspects.filter((p) => String(p.status || "") === "researched").length;
+    const allEnriched = hasProspects && enrichedCount === activeProspects.length;
     const draftsCount = Object.keys(draftByProspect).length;
     const anyDrafted = draftsCount > 0;
     return {
@@ -159,6 +167,7 @@ export default function GuidedWorkflowClient(props: {
     setBanner("");
     setBusy({ step: "upload", label: "Uploading CSV…" });
     setRowState({});
+    setProgress(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
@@ -174,17 +183,21 @@ export default function GuidedWorkflowClient(props: {
       setBanner(String(e?.message || "CSV import failed"));
     } finally {
       setBusy(null);
+      setProgress(null);
     }
   };
 
   const runEnrich = async () => {
     setBanner("");
     setBusy({ step: "enrich", label: "Analyzing domains…" });
+    const total = activeProspects.length;
+    setProgress({ current: 0, total, label: "Analyzing domain…" });
     const nextState: Record<string, { state: string; error?: string }> = {};
-    for (const p of prospects) nextState[p.id] = { state: "pending" };
+    for (const p of activeProspects) nextState[p.id] = { state: "pending" };
     setRowState(nextState);
 
-    for (const p of prospects) {
+    let done = 0;
+    for (const p of activeProspects) {
       setRowState((s) => ({ ...s, [p.id]: { state: "enriching" } }));
       try {
         const res = await fetch(`/api/prospects/${encodeURIComponent(p.id)}/enrich-domain`, {
@@ -198,10 +211,13 @@ export default function GuidedWorkflowClient(props: {
       } catch (e: any) {
         setRowState((s) => ({ ...s, [p.id]: { state: "failed", error: String(e?.message || "enrich failed") } }));
       }
+      done += 1;
+      setProgress({ current: done, total, label: "Generating personalization…" });
     }
 
     await refresh(campaignId);
     setBusy(null);
+    setProgress(null);
     setBanner("Enrichment complete");
     setStep("generate");
     setUrl(campaignId, "generate");
@@ -211,8 +227,11 @@ export default function GuidedWorkflowClient(props: {
   const runGenerate = async () => {
     setBanner("");
     setBusy({ step: "generate", label: "Generating personalization…" });
+    const total = activeProspects.length;
+    setProgress({ current: 0, total, label: "Generating drafts…" });
 
-    for (const p of prospects) {
+    let done = 0;
+    for (const p of activeProspects) {
       setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "pending" }), state: "generating" } }));
       try {
         const res = await fetch(`/api/generate-outreach`, {
@@ -235,10 +254,13 @@ export default function GuidedWorkflowClient(props: {
       } catch (e: any) {
         setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "pending" }), state: "failed", error: String(e?.message || "generate failed") } }));
       }
+      done += 1;
+      setProgress({ current: done, total, label: "Generating drafts…" });
     }
 
     await refresh(campaignId);
     setBusy(null);
+    setProgress(null);
     setBanner("Drafts generated");
     setStep("review");
     setUrl(campaignId, "review");
@@ -247,7 +269,7 @@ export default function GuidedWorkflowClient(props: {
 
   const approveAll = () => {
     const next: Record<string, boolean> = {};
-    for (const p of prospects) {
+    for (const p of activeProspects) {
       if (draftByProspect[p.id]) next[p.id] = true;
     }
     setApproved(next);
@@ -258,12 +280,17 @@ export default function GuidedWorkflowClient(props: {
     setBanner("");
     setBusy({ step: "send", label: "Sending…" });
 
-    const list = mode === "all" ? prospects : prospects.filter((p) => approved[p.id]);
+    const list = mode === "all" ? activeProspects : activeProspects.filter((p) => approved[p.id]);
+    const total = list.length;
+    setProgress({ current: 0, total, label: "Sending…" });
+    let done = 0;
     for (const p of list) {
       const toEmail = String(p.email || "").trim().toLowerCase();
       const d = draftByProspect[p.id] || null;
       if (!isValidEmail(toEmail) || !d?.body) {
         setRowState((s) => ({ ...s, [p.id]: { state: "failed", error: "Missing email or draft" } }));
+        done += 1;
+        setProgress({ current: done, total, label: "Sending…" });
         continue;
       }
 
@@ -281,10 +308,13 @@ export default function GuidedWorkflowClient(props: {
       } catch (e: any) {
         setRowState((s) => ({ ...s, [p.id]: { state: "failed", error: String(e?.message || "send failed") } }));
       }
+      done += 1;
+      setProgress({ current: done, total, label: "Sending…" });
     }
 
     await refresh(campaignId);
     setBusy(null);
+    setProgress(null);
     setBanner("Send complete");
     setStep("replies");
     setUrl(campaignId, "replies");
@@ -394,7 +424,10 @@ export default function GuidedWorkflowClient(props: {
           {busy ? (
             <div className="flex items-center gap-2">
               <Spinner />
-              <span>{busy.label}</span>
+              <span>
+                {busy.label}
+                {progress ? ` (${progress.current}/${progress.total})` : ""}
+              </span>
             </div>
           ) : (
             banner
@@ -406,7 +439,10 @@ export default function GuidedWorkflowClient(props: {
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800">
           <div className="flex items-center gap-2">
             <Spinner />
-            <span>{busy.label}</span>
+            <span>
+              {busy.label}
+              {progress ? ` (${progress.current}/${progress.total})` : ""}
+            </span>
           </div>
         </div>
       )}
@@ -659,7 +695,7 @@ export default function GuidedWorkflowClient(props: {
                 </td>
               </tr>
             ) : (
-              prospects.map((p) => {
+              activeProspects.map((p) => {
                 const pid = p.id;
                 const d = draftByProspect[pid] || null;
                 const rs = rowState[pid] || null;
@@ -723,6 +759,11 @@ export default function GuidedWorkflowClient(props: {
           </tbody>
         </table>
       </div>
+      {prospects.length > DEMO_MAX_ROWS && (
+        <div className="mt-3 text-xs text-slate-500">
+          Showing first {DEMO_MAX_ROWS} rows for a smooth demo. Upload 5–10 for best results.
+        </div>
+      )}
     </div>
   );
 }
