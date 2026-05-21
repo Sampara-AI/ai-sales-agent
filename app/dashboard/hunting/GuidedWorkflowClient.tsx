@@ -54,7 +54,20 @@ export default function GuidedWorkflowClient(props: {
 
   const [busy, setBusy] = useState<null | { step: StepKey; label: string }>(null);
   const [banner, setBanner] = useState<string>("");
-  const [rowState, setRowState] = useState<Record<string, { state: string; error?: string; reasoning?: string; knowledge_preview?: string; knowledge_used?: boolean }>>({});
+  const [rowState, setRowState] = useState<
+    Record<
+      string,
+      {
+        state: string;
+        error?: string;
+        reasoning?: string;
+        knowledge_preview?: string;
+        knowledge_used?: boolean;
+        draft_subject?: string;
+        draft_body?: string;
+      }
+    >
+  >({});
 
   const [approved, setApproved] = useState<Record<string, boolean>>({});
 
@@ -241,11 +254,15 @@ export default function GuidedWorkflowClient(props: {
         });
         const j = await res.json().catch(() => ({} as any));
         if (!res.ok) throw new Error(String(j?.error || "generate failed"));
+        const subj = String((j?.subject_lines || [])[0] || "").trim();
+        const body = String(j?.email_body || "").trim();
         setRowState((s) => ({
           ...s,
           [p.id]: {
             ...(s[p.id] || { state: "pending" }),
             state: "email_ready",
+            draft_subject: subj,
+            draft_body: body,
             reasoning: String(j?.reasoning || "").trim(),
             knowledge_used: Boolean(j?.knowledge_used),
             knowledge_preview: String(j?.knowledge_preview || "").trim(),
@@ -270,7 +287,9 @@ export default function GuidedWorkflowClient(props: {
   const approveAll = () => {
     const next: Record<string, boolean> = {};
     for (const p of activeProspects) {
-      if (draftByProspect[p.id]) next[p.id] = true;
+      const pid = p.id;
+      const hasDraft = !!draftByProspect[pid] || !!String(rowState[pid]?.draft_body || "").trim();
+      if (hasDraft) next[pid] = true;
     }
     setApproved(next);
     setBanner("All drafts approved");
@@ -287,7 +306,11 @@ export default function GuidedWorkflowClient(props: {
     for (const p of list) {
       const toEmail = String(p.email || "").trim().toLowerCase();
       const d = draftByProspect[p.id] || null;
-      if (!isValidEmail(toEmail) || !d?.body) {
+      const fallbackSubject = String(rowState[p.id]?.draft_subject || "").trim();
+      const fallbackBody = String(rowState[p.id]?.draft_body || "").trim();
+      const subject = String((d?.subject_lines || [])[0] || fallbackSubject || "Quick question").trim();
+      const body = String(d?.body || fallbackBody || "").trim();
+      if (!isValidEmail(toEmail) || !body) {
         setRowState((s) => ({ ...s, [p.id]: { state: "failed", error: "Missing email or draft" } }));
         done += 1;
         setProgress({ current: done, total, label: "Sending…" });
@@ -296,11 +319,18 @@ export default function GuidedWorkflowClient(props: {
 
       setRowState((s) => ({ ...s, [p.id]: { state: "sending" } }));
       try {
-        const subject = String((d.subject_lines || [])[0] || "Quick question").trim();
         const res = await fetch(`/api/send-email`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prospect_id: p.id, to_email: toEmail, subject, body: d.body, enqueue_only: false, run_now: true }),
+          body: JSON.stringify({
+            prospect_id: p.id,
+            email_draft_id: d?.id || undefined,
+            to_email: toEmail,
+            subject,
+            body,
+            enqueue_only: false,
+            run_now: true,
+          }),
         });
         const j = await res.json().catch(() => ({} as any));
         if (!res.ok || !j?.success) throw new Error(String(j?.error || "send failed"));
@@ -704,8 +734,10 @@ export default function GuidedWorkflowClient(props: {
                 const reasoning = String(rs?.reasoning || "").trim();
                 const knowledgeUsed = Boolean(rs?.knowledge_used);
                 const knowledgePreview = String(rs?.knowledge_preview || "").trim();
-                const subj = d ? String((d.subject_lines || [])[0] || "").trim() : "";
-                const body = d ? String(d.body || "").trim() : "";
+                const fallbackSubj = String(rs?.draft_subject || "").trim();
+                const fallbackBody = String(rs?.draft_body || "").trim();
+                const subj = d ? String((d.subject_lines || [])[0] || "").trim() : fallbackSubj;
+                const body = d ? String(d.body || "").trim() : fallbackBody;
                 const preview = body ? body.replace(/\s+/g, " ").slice(0, 120) + (body.length > 120 ? "…" : "") : "No draft yet";
                 const rationale = String(p.recent_activity || "").trim();
 
@@ -716,7 +748,7 @@ export default function GuidedWorkflowClient(props: {
                         type="checkbox"
                         checked={!!approved[pid]}
                         onChange={(e) => setApproved((s) => ({ ...s, [pid]: e.currentTarget.checked }))}
-                        disabled={!d || !!busy}
+                        disabled={(!d && !body) || !!busy}
                         className="h-4 w-4"
                       />
                     </td>

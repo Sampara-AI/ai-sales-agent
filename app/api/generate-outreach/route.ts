@@ -118,11 +118,12 @@ export async function POST(req: NextRequest) {
     let pain_points = input.pain_points || "";
     let source = input.source || "";
     const prospect_id = input.prospect_id;
+    let prospectDomain = "";
 
     if (prospect_id) {
       const pRes = await adminDb
         .from("prospects")
-        .select("id,name,title,company,industry,email,source,recent_activity,fit_reasoning")
+        .select("id,name,title,company,industry,email,domain,source,recent_activity,fit_reasoning")
         .eq("id", prospect_id)
         .single();
       if (!pRes.error && pRes.data) {
@@ -132,12 +133,20 @@ export async function POST(req: NextRequest) {
         company = String(p.company || company);
         industry = String(p.industry || industry);
         source = String(p.source || source);
+        prospectDomain = String(p.domain || "").trim();
         const ra = [p.recent_activity, p.fit_reasoning].filter(Boolean).join("\n");
         recent_activity = ra || recent_activity;
+        if (!prospectDomain && String(p.email || "").includes("@")) {
+          prospectDomain = String(p.email || "").split("@")[1]?.trim()?.toLowerCase() || "";
+        }
       }
     }
 
-    if (!name || !company) return NextResponse.json({ error: "Missing required fields" }, { status: 400 });
+    const cleanedCompany = String(company || "").trim();
+    const cleanedName = String(name || "").trim();
+    const fallbackCompany = String(prospectDomain || "").trim();
+    company = cleanedCompany || fallbackCompany || "your team";
+    name = cleanedName || company || "there";
 
     const groq = new Groq({ apiKey });
     const openaiKey = String(process.env.OPENAI_API_KEY || "").trim();
