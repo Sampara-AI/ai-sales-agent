@@ -91,6 +91,7 @@ async function processCsvCampaign(formData: FormData) {
   let sent = 0;
   let failed = 0;
   let skipped = 0;
+  let sendCode = "";
 
   for (const p of prospects) {
     const toEmail = String(p.email || "").trim().toLowerCase();
@@ -140,7 +141,11 @@ async function processCsvCampaign(formData: FormData) {
         body: JSON.stringify({ prospect_id: p.id, to_email: toEmail, subject, body, enqueue_only: false, run_now: true }),
         cache: "no-store",
       });
-      if (!sendRes.ok) throw new Error("send failed");
+      if (!sendRes.ok) {
+        const j = await sendRes.json().catch(() => ({} as any));
+        if (!sendCode) sendCode = String((j as any)?.error || "send_failed").slice(0, 60);
+        throw new Error("send failed");
+      }
       sent++;
     } catch {
       failed++;
@@ -150,7 +155,9 @@ async function processCsvCampaign(formData: FormData) {
   if (mode === "enrich") {
     redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=process&enriched=${encodeURIComponent(String(enriched))}#stage`);
   }
-  redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&process=${encodeURIComponent(String(sent))}&enriched=${encodeURIComponent(String(enriched))}&drafted=${encodeURIComponent(String(drafted))}&skipped=${encodeURIComponent(String(skipped))}&failed=${encodeURIComponent(String(failed))}#stage`);
+  redirect(
+    `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&process=${encodeURIComponent(String(sent))}&enriched=${encodeURIComponent(String(enriched))}&drafted=${encodeURIComponent(String(drafted))}&skipped=${encodeURIComponent(String(skipped))}&failed=${encodeURIComponent(String(failed))}${sendCode ? `&send_code=${encodeURIComponent(sendCode)}` : ""}#stage`,
+  );
 }
 
 async function sendDemoEmail(formData: FormData) {
@@ -238,7 +245,11 @@ async function sendDemoEmail(formData: FormData) {
     body: JSON.stringify({ prospect_id: prospectId, to_email: toEmail, subject, body, enqueue_only: false, run_now: true }),
     cache: "no-store",
   });
-  if (!sendRes.ok) redirect("/dashboard/hunting?demo=send_failed");
+  if (!sendRes.ok) {
+    const j = await sendRes.json().catch(() => ({} as any));
+    const code = encodeURIComponent(String((j as any)?.error || "send_failed").slice(0, 80));
+    redirect(`/dashboard/hunting?demo=send_failed&send_code=${code}`);
+  }
 
   redirect("/dashboard/hunting?demo=sent");
 }
@@ -427,6 +438,7 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
   const processDrafted = typeof searchParams?.drafted === "string" ? searchParams?.drafted : "";
   const processSkipped = typeof searchParams?.skipped === "string" ? searchParams?.skipped : "";
   const processFailed = typeof searchParams?.failed === "string" ? searchParams?.failed : "";
+  const processSendCode = typeof searchParams?.send_code === "string" ? searchParams?.send_code : "";
 
   const campaignsError = (campaignsRes as any)?.error;
   const campaignsErrCode = String(campaignsError?.code || "");
@@ -684,6 +696,13 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                   {importNotice && (
                     <div className="mt-3 text-xs text-slate-500">Imported {importNotice} rows. Use Next → to move through stages.</div>
                   )}
+                  {(processNotice || processFailed || processSendCode) && (
+                    <div className="mt-3 text-xs text-slate-600">
+                      {processNotice ? `Sent ${processNotice}. ` : ""}
+                      {processFailed ? `Failed ${processFailed}. ` : ""}
+                      {processSendCode ? `Last error: ${processSendCode}` : ""}
+                    </div>
+                  )}
                 </div>
                 <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
                   <table className="w-full text-sm">
@@ -718,6 +737,52 @@ export default async function HuntingDashboardPage({ searchParams }: { searchPar
                       )}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="mt-3 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <a
+                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=import#stage`}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${effectiveStage === "import" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
+                    >
+                      1 Import
+                    </a>
+                    <a
+                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=enrich#stage`}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${effectiveStage === "enrich" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
+                    >
+                      2 Enrich <span>→</span>
+                    </a>
+                    <a
+                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=process#stage`}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${effectiveStage === "process" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
+                    >
+                      3 Process <span>→</span>
+                    </a>
+                    <a
+                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=inbox#stage`}
+                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${effectiveStage === "inbox" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
+                    >
+                      4 Inbox <span>→</span>
+                    </a>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <form action={processCsvCampaign}>
+                      <input type="hidden" name="campaign_id" value={selectedCampaignId} />
+                      <input type="hidden" name="mode" value="enrich" />
+                      <button type="submit" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                        Run Enrich
+                      </button>
+                    </form>
+                    <form action={processCsvCampaign}>
+                      <input type="hidden" name="campaign_id" value={selectedCampaignId} />
+                      <input type="hidden" name="mode" value="process" />
+                      <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                        Process + Send Now
+                      </button>
+                    </form>
+                  </div>
                 </div>
               </div>
             )}

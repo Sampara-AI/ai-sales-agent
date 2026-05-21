@@ -221,6 +221,66 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       .slice(0, 250);
     const skipped_duplicates = Math.max(0, rows.length - toInsertRows.length);
 
+    const emails = toInsertRows.map((r) => String(r.email || "").trim().toLowerCase()).filter(Boolean);
+    let attachCount = 0;
+    if (emails.length > 0) {
+      try {
+        const existingGlobal = await supabase.from("prospects").select("id,email,campaign_id,domain,company,name").in("email", emails);
+        const existingByEmail = new Map<string, any>();
+        for (const p of (existingGlobal.data || []) as any[]) {
+          const e = String(p.email || "").trim().toLowerCase();
+          if (e) existingByEmail.set(e, p);
+        }
+
+        const toAttach = toInsertRows.filter((r) => {
+          const e = String(r.email || "").trim().toLowerCase();
+          if (!e) return false;
+          const ex = existingByEmail.get(e);
+          return !!ex && String(ex.campaign_id || "") !== String(id);
+        });
+
+        for (const r of toAttach) {
+          const e = String(r.email || "").trim().toLowerCase();
+          const ex = existingByEmail.get(e);
+          if (!ex?.id) continue;
+          const updPayload: Record<string, any> = {
+            campaign_id: id,
+            status: "email_ready",
+          };
+          if (!String(ex.domain || "").trim() && r.domain) updPayload.domain = r.domain;
+          if (!String(ex.company || "").trim() && r.company) updPayload.company = r.company;
+          if (!String(ex.name || "").trim() && r.name) updPayload.name = r.name;
+
+          let payload = { ...updPayload };
+          let lastErr: any = null;
+          for (let i = 0; i < 12; i++) {
+            const upd = await supabase.from("prospects").update(payload).eq("id", ex.id);
+            if (!upd.error) {
+              lastErr = null;
+              attachCount++;
+              break;
+            }
+            lastErr = upd.error;
+            const missing = extractMissingColumnName(upd.error.message || "");
+            if (missing && Object.prototype.hasOwnProperty.call(payload, missing)) {
+              delete (payload as any)[missing];
+              continue;
+            }
+            break;
+          }
+          if (lastErr) {}
+        }
+
+        if (toAttach.length > 0) {
+          const attachedEmails = new Set(toAttach.map((r) => String(r.email || "").trim().toLowerCase()).filter(Boolean));
+          for (let i = toInsertRows.length - 1; i >= 0; i--) {
+            const e = String(toInsertRows[i].email || "").trim().toLowerCase();
+            if (e && attachedEmails.has(e)) toInsertRows.splice(i, 1);
+          }
+        }
+      } catch {}
+    }
+
     const insert = toInsertRows.map((r) => ({
       campaign_id: id,
       name: r.name || r.company || r.domain || r.email || "Unknown",
@@ -237,9 +297,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }));
 
     if (insert.length === 0) {
-      await supabase.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "import", result_summary: "imported=0; skipped_duplicates=" + skipped_duplicates, status: "success" });
+      await supabase.from("hunting_campaign_runs").insert({
+        campaign_id: id,
+        run_type: "import",
+        result_summary: `imported=0; attached_existing=${attachCount}; skipped_duplicates=${skipped_duplicates}`,
+        status: "success",
+      });
       if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?import=0&skipped=${skipped_duplicates}&campaign=${encodeURIComponent(id)}`, req.url), 303);
-      return NextResponse.json({ success: true, imported: 0, skipped_duplicates, truncated_to: 250 });
+      return NextResponse.json({ success: true, imported: 0, attached_existing: attachCount, skipped_duplicates, truncated_to: 250 });
     }
 
     let attemptRows = insert.map((r) => ({ ...r })) as Record<string, any>[];
@@ -267,11 +332,16 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     } catch {}
 
     try {
-      await supabase.from("hunting_campaign_runs").insert({ campaign_id: id, run_type: "import", result_summary: `imported=${insert.length}; skipped_duplicates=${skipped_duplicates}`, status: "success" });
+      await supabase.from("hunting_campaign_runs").insert({
+        campaign_id: id,
+        run_type: "import",
+        result_summary: `imported=${insert.length}; attached_existing=${attachCount}; skipped_duplicates=${skipped_duplicates}`,
+        status: "success",
+      });
     } catch {}
 
     if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?import=${insert.length}&skipped=${skipped_duplicates}&campaign=${encodeURIComponent(id)}`, req.url), 303);
-    return NextResponse.json({ success: true, imported: insert.length, skipped_duplicates, truncated_to: 250 });
+    return NextResponse.json({ success: true, imported: insert.length, attached_existing: attachCount, skipped_duplicates, truncated_to: 250 });
   } catch (err: any) {
     if (wantsHtml) return NextResponse.redirect(new URL(`/dashboard/hunting?import=failed&campaign=${encodeURIComponent(id)}`, req.url), 303);
     return NextResponse.json({ success: false, error: err?.message || "Import failed" }, { status: 500 });
