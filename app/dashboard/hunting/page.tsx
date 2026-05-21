@@ -2,119 +2,78 @@ import { Nunito_Sans } from "next/font/google";
 import { createAdminClient } from "@/lib/server/supabase-admin";
 import { redirect } from "next/navigation";
 import { headers } from "next/headers";
-import CampaignCsvImporter from "./CampaignCsvImporter";
 
 export const dynamic = "force-dynamic";
 
 const nunito = Nunito_Sans({ subsets: ["latin"], weight: ["300", "400", "600", "700", "800"] });
-const demoUserId = "00000000-0000-0000-0000-000000000001";
 
-async function insertHuntingCampaign(admin: ReturnType<typeof createAdminClient>, initialPayload: Record<string, any>) {
-  let payload = { ...initialPayload };
-  let lastErr: any = null;
-  for (let i = 0; i < 12; i++) {
-    const res = await admin.from("hunting_campaigns").insert(payload).select("id").single();
-    if (!res.error) return res;
-    lastErr = res.error;
-    const code = String((res.error as any)?.code || "");
-    if (code === "23503" && Object.prototype.hasOwnProperty.call(payload, "created_by")) {
-      delete (payload as any).created_by;
-      continue;
-    }
-    const msg = String(res.error.message || "");
-    const m =
-      msg.match(/Could not find the '([^']+)' column of 'hunting_campaigns'/) ||
-      msg.match(/column \"([^\"]+)\" of relation \"hunting_campaigns\" does not exist/i) ||
-      msg.match(/column \"([^\"]+)\" does not exist/i);
-    const missing = m?.[1];
-    if (missing && Object.prototype.hasOwnProperty.call(payload, missing)) {
-      delete (payload as any)[missing];
-      continue;
-    }
-    break;
-  }
-  return { data: null, error: lastErr };
+function isValidEmail(email: string) {
+  return /[^@\s]+@[^@\s]+\.[^@\s]+/.test(email);
 }
 
-function extractMissingProspectsColumnName(message: string) {
-  const msg = String(message || "");
-  const m =
-    msg.match(/Could not find the '([^']+)' column of 'prospects'/) ||
-    msg.match(/column \"([^\"]+)\" of relation \"prospects\" does not exist/i) ||
-    msg.match(/column \"([^\"]+)\" does not exist/i);
-  return m?.[1] ? String(m[1]) : "";
+async function getBaseUrl() {
+  const h = await headers();
+  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
+  const proto = h.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
 }
 
-async function insertProspect(admin: ReturnType<typeof createAdminClient>, initialPayload: Record<string, any>) {
-  let payload = { ...initialPayload };
-  let lastErr: any = null;
-  for (let i = 0; i < 12; i++) {
-    const res = await admin.from("prospects").insert(payload).select("id").single();
-    if (!res.error) return res;
-    lastErr = res.error;
-    const missing = extractMissingProspectsColumnName(res.error.message || "");
-    if (missing && Object.prototype.hasOwnProperty.call(payload, missing)) {
-      delete (payload as any)[missing];
-      continue;
-    }
-    break;
-  }
-  return { data: null, error: lastErr };
-}
-
-async function processCsvCampaign(formData: FormData) {
+async function enrichCampaign(formData: FormData) {
   "use server";
   const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
   if (!demoMode) redirect("/dashboard/hunting");
   const campaignId = String(formData.get("campaign_id") || "").trim();
-  const mode = String(formData.get("mode") || "process").trim().toLowerCase();
   if (!campaignId) redirect("/dashboard/hunting");
 
   const admin = createAdminClient();
-  const pRes = await admin
-    .from("prospects")
-    .select("id,email,domain,status")
-    .eq("campaign_id", campaignId)
-    .order("created_at", { ascending: false })
-    .limit(50);
-  const prospects = (pRes.data || []) as Array<{ id: string; email: string | null; domain: string | null; status: string | null }>;
-  if (prospects.length === 0) redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&process=0`);
+  const pRes = await admin.from("prospects").select("id,email").eq("campaign_id", campaignId).order("created_at", { ascending: false }).limit(250);
+  const prospects = (pRes.data || []) as Array<{ id: string; email: string | null }>;
 
-  const h = await headers();
-  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
-  const proto = h.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-  const baseUrl = `${proto}://${host}`;
+  const baseUrl = await getBaseUrl();
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
 
   let enriched = 0;
-  let drafted = 0;
-  let sent = 0;
   let failed = 0;
-  let skipped = 0;
-  let sendCode = "";
-
   for (const p of prospects) {
     const toEmail = String(p.email || "").trim().toLowerCase();
-    if (!/[^@\s]+@[^@\s]+\.[^@\s]+/.test(toEmail)) {
-      skipped++;
-      continue;
+    if (!isValidEmail(toEmail)) continue;
+    try {
+      const enr = await fetch(`${baseUrl}/api/prospects/${encodeURIComponent(p.id)}/enrich-domain`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
+        body: JSON.stringify({ run_now: true, enqueue_only: false }),
+        cache: "no-store",
+      });
+      if (enr.ok) enriched++;
+      else failed++;
+    } catch {
+      failed++;
     }
+  }
 
-    if (mode === "enrich" || String(p.status || "").toLowerCase() !== "researched") {
-      try {
-        const enr = await fetch(`${baseUrl}/api/prospects/${encodeURIComponent(p.id)}/enrich-domain`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
-          body: JSON.stringify({ run_now: true, enqueue_only: false }),
-          cache: "no-store",
-        });
-        if (enr.ok) enriched++;
-      } catch {}
-    }
-    if (mode === "enrich") continue;
+  redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&step=generate&enriched=${encodeURIComponent(String(enriched))}&failed=${encodeURIComponent(String(failed))}`);
+}
 
-    let subject = "";
-    let body = "";
+async function generateDrafts(formData: FormData) {
+  "use server";
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (!demoMode) redirect("/dashboard/hunting");
+  const campaignId = String(formData.get("campaign_id") || "").trim();
+  if (!campaignId) redirect("/dashboard/hunting");
+
+  const admin = createAdminClient();
+  const pRes = await admin.from("prospects").select("id,email").eq("campaign_id", campaignId).order("created_at", { ascending: false }).limit(250);
+  const prospects = (pRes.data || []) as Array<{ id: string; email: string | null }>;
+
+  const baseUrl = await getBaseUrl();
+  const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
+
+  let drafted = 0;
+  let failed = 0;
+  let err = "";
+  for (const p of prospects) {
+    const toEmail = String(p.email || "").trim().toLowerCase();
+    if (!isValidEmail(toEmail)) continue;
     try {
       const genRes = await fetch(`${baseUrl}/api/generate-outreach`, {
         method: "POST",
@@ -122,18 +81,75 @@ async function processCsvCampaign(formData: FormData) {
         body: JSON.stringify({ prospect_id: p.id, enqueue_only: false }),
         cache: "no-store",
       });
-      const genJson = await genRes.json().catch(() => ({} as any));
-      if (!genRes.ok) throw new Error("generate failed");
-      subject = String((genJson as any)?.subject_lines?.[0] || "").trim();
-      body = String((genJson as any)?.email_body || "").trim();
-      if (!subject) subject = "Quick question";
-      if (!body) throw new Error("empty body");
+      if (!genRes.ok) {
+        const j = await genRes.json().catch(() => ({} as any));
+        if (!err) err = String((j as any)?.error || "generate_failed").slice(0, 120);
+        failed++;
+        continue;
+      }
       drafted++;
     } catch {
       failed++;
+    }
+  }
+
+  redirect(
+    `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&step=review&drafted=${encodeURIComponent(String(drafted))}&failed=${encodeURIComponent(String(failed))}${err ? `&error=${encodeURIComponent(err)}` : ""}`,
+  );
+}
+
+async function sendDrafts(formData: FormData) {
+  "use server";
+  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
+  if (!demoMode) redirect("/dashboard/hunting");
+  const campaignId = String(formData.get("campaign_id") || "").trim();
+  if (!campaignId) redirect("/dashboard/hunting");
+
+  const sendMode = String(formData.get("send_mode") || "selected").trim().toLowerCase();
+  const selected = formData.getAll("prospect_id").map((v) => String(v || "").trim()).filter(Boolean);
+
+  const admin = createAdminClient();
+  const pRes = await admin.from("prospects").select("id,email").eq("campaign_id", campaignId).order("created_at", { ascending: false }).limit(250);
+  const prospects = (pRes.data || []) as Array<{ id: string; email: string | null }>;
+
+  const allowed = new Set<string>(sendMode === "all" ? prospects.map((p) => p.id) : selected);
+  const toSend = prospects.filter((p) => allowed.has(p.id));
+
+  const ids = toSend.map((p) => p.id);
+  const draftsByProspect = new Map<string, any>();
+  if (ids.length > 0) {
+    try {
+      const dRes = await admin
+        .from("email_drafts")
+        .select("id,prospect_id,subject_lines,body,status,created_at")
+        .in("prospect_id", ids)
+        .eq("status", "draft")
+        .order("created_at", { ascending: false })
+        .limit(500);
+      for (const d of (dRes.data || []) as any[]) {
+        const pid = String(d.prospect_id || "").trim();
+        if (!pid) continue;
+        if (!draftsByProspect.has(pid)) draftsByProspect.set(pid, d);
+      }
+    } catch {}
+  }
+
+  const baseUrl = await getBaseUrl();
+  const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
+
+  let sent = 0;
+  let failed = 0;
+  let sendCode = "";
+  for (const p of toSend) {
+    const toEmail = String(p.email || "").trim().toLowerCase();
+    if (!isValidEmail(toEmail)) continue;
+    const d = draftsByProspect.get(p.id) || null;
+    const subject = String((d?.subject_lines || [])[0] || "Quick question").trim();
+    const body = String(d?.body || "").trim();
+    if (!body) {
+      failed++;
       continue;
     }
-
     try {
       const sendRes = await fetch(`${baseUrl}/api/send-email`, {
         method: "POST",
@@ -143,8 +159,9 @@ async function processCsvCampaign(formData: FormData) {
       });
       if (!sendRes.ok) {
         const j = await sendRes.json().catch(() => ({} as any));
-        if (!sendCode) sendCode = String((j as any)?.error || "send_failed").slice(0, 60);
-        throw new Error("send failed");
+        if (!sendCode) sendCode = String((j as any)?.error || "send_failed").slice(0, 120);
+        failed++;
+        continue;
       }
       sent++;
     } catch {
@@ -152,106 +169,9 @@ async function processCsvCampaign(formData: FormData) {
     }
   }
 
-  if (mode === "enrich") {
-    redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=process&enriched=${encodeURIComponent(String(enriched))}#stage`);
-  }
   redirect(
-    `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&process=${encodeURIComponent(String(sent))}&enriched=${encodeURIComponent(String(enriched))}&drafted=${encodeURIComponent(String(drafted))}&skipped=${encodeURIComponent(String(skipped))}&failed=${encodeURIComponent(String(failed))}${sendCode ? `&send_code=${encodeURIComponent(sendCode)}` : ""}#stage`,
+    `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&step=replies&sent=${encodeURIComponent(String(sent))}&failed=${encodeURIComponent(String(failed))}${sendCode ? `&send_code=${encodeURIComponent(sendCode)}` : ""}`,
   );
-}
-
-async function sendDemoEmail(formData: FormData) {
-  "use server";
-  const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
-  if (!demoMode) redirect("/dashboard/hunting");
-
-  const toEmail = String(formData.get("to_email") || "").trim().toLowerCase();
-  const name = String(formData.get("name") || "").trim() || "Demo Recipient";
-  const title = String(formData.get("title") || "").trim() || "Founder";
-  const companyInput = String(formData.get("company") || "").trim();
-  if (!/[^@\s]+@[^@\s]+\.[^@\s]+/.test(toEmail)) redirect("/dashboard/hunting?demo=invalid_email");
-
-  const domain = toEmail.includes("@") ? toEmail.split("@")[1]?.trim().toLowerCase() : "";
-  const company = companyInput || (domain ? domain.replace(/^www\./, "") : "Demo Company");
-
-  const admin = createAdminClient();
-  let campaignId: string | null = null;
-  try {
-    const existing = await admin.from("hunting_campaigns").select("id").order("created_at", { ascending: false }).limit(1);
-    campaignId = String((existing.data || [])[0]?.id || "") || null;
-  } catch {}
-  if (!campaignId) {
-    const created = await insertHuntingCampaign(admin, {
-      name: "Demo Campaign",
-      description: "Demo campaign (auto-created)",
-      titles: [title],
-      industries: [],
-      locations: [],
-      keywords: [],
-      exclude_companies: [],
-      daily_prospect_limit: 20,
-      min_ai_score: 0,
-      email_daily_limit: 50,
-      send_weekends: true,
-      followup_days: [3, 7, 14],
-      max_followups: 3,
-      require_manual_review: false,
-      status: "active",
-      created_by: demoUserId,
-    });
-    campaignId = String((created.data as any)?.id || "") || null;
-  }
-  if (!campaignId) redirect("/dashboard/hunting?demo=campaign_failed");
-
-  const prospectIns = await admin
-    ;
-  const prospectCreated = await insertProspect(admin, {
-      campaign_id: campaignId,
-      name,
-      title,
-      company,
-      domain: domain || null,
-      industry: null,
-      linkedin_url: null,
-      email: toEmail,
-      status: "email_ready",
-      source: "demo",
-      notes: "demo recipient",
-      recent_activity: domain ? `Imported domain: ${domain}` : null,
-    });
-  const prospectId = String((prospectCreated.data as any)?.id || "").trim();
-  if (!prospectId) redirect("/dashboard/hunting?demo=prospect_failed");
-
-  const h = await headers();
-  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
-  const proto = h.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-  const baseUrl = `${proto}://${host}`;
-
-  const genRes = await fetch(`${baseUrl}/api/generate-outreach`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prospect_id: prospectId, enqueue_only: false }),
-    cache: "no-store",
-  });
-  const genJson = await genRes.json().catch(() => ({} as any));
-  if (!genRes.ok) redirect("/dashboard/hunting?demo=generate_failed");
-  const subject = String((genJson as any)?.subject_lines?.[0] || `Quick question about ${company}`).trim();
-  const body = String((genJson as any)?.email_body || "").trim();
-  if (!body) redirect("/dashboard/hunting?demo=generate_failed");
-
-  const sendRes = await fetch(`${baseUrl}/api/send-email`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ prospect_id: prospectId, to_email: toEmail, subject, body, enqueue_only: false, run_now: true }),
-    cache: "no-store",
-  });
-  if (!sendRes.ok) {
-    const j = await sendRes.json().catch(() => ({} as any));
-    const code = encodeURIComponent(String((j as any)?.error || "send_failed").slice(0, 80));
-    redirect(`/dashboard/hunting?demo=send_failed&send_code=${code}`);
-  }
-
-  redirect("/dashboard/hunting?demo=sent");
 }
 
 async function analyzeInboundReply(formData: FormData) {
@@ -260,648 +180,379 @@ async function analyzeInboundReply(formData: FormData) {
   if (!demoMode) redirect("/dashboard/hunting");
 
   const campaignId = String(formData.get("campaign_id") || "").trim();
-  if (!campaignId) redirect("/dashboard/hunting");
-
   const fromEmail = String(formData.get("from_email") || "").trim().toLowerCase();
   const toEmail = String(formData.get("to_email") || "").trim().toLowerCase();
   const subject = String(formData.get("subject") || "").trim();
   const body = String(formData.get("body") || "").trim();
   const autoSend = String(formData.get("auto_send") || "").toLowerCase() === "on";
-  if (!fromEmail || !toEmail || !body) redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=invalid#reply`);
 
+  if (!campaignId) redirect("/dashboard/hunting");
+  if (!isValidEmail(fromEmail) || !isValidEmail(toEmail) || !body) redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&step=replies&reply=invalid#reply`);
+
+  const baseUrl = await getBaseUrl();
   const internalSecret = String(process.env.INTERNAL_API_KEY || "").trim();
-  const externalThreadId = crypto.randomUUID();
-  const h = await headers();
-  const host = h.get("x-forwarded-host") || h.get("host") || "localhost:3000";
-  const proto = h.get("x-forwarded-proto") || (host.includes("localhost") ? "http" : "https");
-  const baseUrl = `${proto}://${host}`;
 
-  try {
-    const res = await fetch(`${baseUrl}/api/inbox/respond`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
-      body: JSON.stringify({ mailbox: "default", external_thread_id: externalThreadId, from_email: fromEmail, to_email: toEmail, subject, body }),
-      cache: "no-store",
-    });
-    const json = await res.json().catch(() => ({} as any));
-    if (!res.ok) {
-      const errText = String((json as any)?.error || "");
-      const code = errText.includes("OPENAI_API_KEY") ? "missing_openai" : "failed";
-      redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=${encodeURIComponent(code)}#reply`);
-    }
-    if (autoSend) {
-      const replySubject = String((json as any)?.response_subject || "").trim();
-      const replyBody = String((json as any)?.response_body || "").trim();
-      const prospectId = String((json as any)?.thread?.prospect_id || "").trim();
-      if (!prospectId || !replyBody) {
-        redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=no_prospect#reply`);
-      }
-      const sendRes = await fetch(`${baseUrl}/api/send-email`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
-        body: JSON.stringify({
-          prospect_id: prospectId,
-          to_email: fromEmail,
-          subject: replySubject || (subject ? `Re: ${subject}` : "Re:"),
-          body: replyBody,
-          enqueue_only: false,
-          run_now: true,
-          allow_replied: true,
-        }),
-        cache: "no-store",
-      });
-      const sendJson = await sendRes.json().catch(() => ({} as any));
-      if (!sendRes.ok) {
-        redirect(
-          `/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=send_failed&send_code=${encodeURIComponent(
-            String((sendJson as any)?.error || "failed").slice(0, 60),
-          )}#reply`,
-        );
-      }
-    }
-  } catch {
-    redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&reply=failed#reply`);
-  }
-
-  redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&stage=inbox&thread=${encodeURIComponent(externalThreadId)}&reply=${encodeURIComponent(autoSend ? "sent" : "ok")}#reply`);
-}
-
-async function createCampaign(formData: FormData) {
-  "use server";
-  const admin = createAdminClient();
-
-  const rawName = String(formData.get("name") || "").trim();
-  if (!rawName) redirect("/dashboard/hunting?created=missing_name");
-
-  const parseList = (v: FormDataEntryValue | null) =>
-    String(v || "")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-
-  const requireManual = String(formData.get("require_manual_review") || "").toLowerCase() === "on";
-  const dailyLimit = Math.max(1, Math.min(500, Number(formData.get("daily_prospect_limit") || 20)));
-  const emailDaily = Math.max(1, Math.min(500, Number(formData.get("email_daily_limit") || 10)));
-
-  const ins = await insertHuntingCampaign(admin, {
-    name: rawName,
-    description: String(formData.get("description") || ""),
-    titles: parseList(formData.get("titles")),
-    industries: parseList(formData.get("industries")),
-    locations: parseList(formData.get("locations")),
-    keywords: parseList(formData.get("keywords")),
-    exclude_companies: parseList(formData.get("exclude_companies")),
-    daily_prospect_limit: dailyLimit,
-    email_daily_limit: emailDaily,
-    min_ai_score: Math.max(0, Math.min(100, Number(formData.get("min_ai_score") || 70))),
-    send_weekends: String(formData.get("send_weekends") || "").toLowerCase() === "on",
-    followup_days: [3, 7, 14],
-    max_followups: 3,
-    require_manual_review: requireManual,
-    status: "active",
-    created_by: demoUserId,
+  const respondRes = await fetch(`${baseUrl}/api/inbox/respond`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
+    body: JSON.stringify({ from_email: fromEmail, to_email: toEmail, subject, body, send_response: false }),
+    cache: "no-store",
   });
-
-  if (ins.error) {
-    const code = encodeURIComponent(String((ins.error as any)?.code || ""));
-    const msg = encodeURIComponent(String(ins.error.message || "").slice(0, 160));
-    redirect(`/dashboard/hunting?created=failed&code=${code}&msg=${msg}`);
+  const respondJson = await respondRes.json().catch(() => ({} as any));
+  if (!respondRes.ok || !(respondJson as any)?.success) {
+    const err = String((respondJson as any)?.error || "failed").slice(0, 120);
+    const code = err.toLowerCase().includes("openai") ? "missing_openai" : "failed";
+    redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&step=replies&reply=${encodeURIComponent(code)}&error=${encodeURIComponent(err)}#reply`);
   }
-  redirect(`/dashboard/hunting?created=ok`);
+
+  const externalThreadId = String((respondJson as any)?.thread_external_id || "").trim();
+  const draftSubject = String((respondJson as any)?.draft_subject || "").trim();
+  const draftBody = String((respondJson as any)?.draft_body || "").trim();
+  if (!autoSend) redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&step=replies&thread=${encodeURIComponent(externalThreadId)}&reply=ok#reply`);
+
+  const prospectId = String((respondJson as any)?.prospect_id || "").trim();
+  if (!prospectId) redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&step=replies&thread=${encodeURIComponent(externalThreadId)}&reply=no_prospect#reply`);
+
+  const sendRes = await fetch(`${baseUrl}/api/send-email`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(internalSecret ? { "x-internal-secret": internalSecret } : {}) },
+    body: JSON.stringify({
+      prospect_id: prospectId,
+      to_email: fromEmail,
+      subject: draftSubject || `Re: ${subject || "Quick question"}`,
+      body: draftBody,
+      enqueue_only: false,
+      run_now: true,
+      allow_replied: true,
+    }),
+    cache: "no-store",
+  });
+  if (!sendRes.ok) redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&step=replies&thread=${encodeURIComponent(externalThreadId)}&reply=send_failed#reply`);
+
+  redirect(`/dashboard/hunting?campaign=${encodeURIComponent(campaignId)}&step=replies&thread=${encodeURIComponent(externalThreadId)}&reply=sent#reply`);
 }
 
 export default async function HuntingDashboardPage({ searchParams }: { searchParams?: Record<string, string | string[] | undefined> }) {
   const admin = createAdminClient();
-  const now = new Date();
-  const start = new Date(now);
-  start.setHours(0, 0, 0, 0);
+
+  const campaignsRes = await admin.from("hunting_campaigns").select("id,name,created_at").order("created_at", { ascending: false });
+  const campaigns = (campaignsRes.data || []) as Array<{ id: string; name: string | null; created_at?: string | null }>;
 
   const selectedCampaignIdRaw = typeof searchParams?.campaign === "string" ? searchParams?.campaign : "";
-  const selectedCampaignId = selectedCampaignIdRaw.trim();
-  const stageRaw = typeof searchParams?.stage === "string" ? searchParams?.stage : "";
-  const stage = String(stageRaw || "import").trim().toLowerCase();
-  const effectiveStage = stage === "enrich" || stage === "process" || stage === "inbox" ? stage : "import";
+  const selectedCampaignId = selectedCampaignIdRaw.trim() || String(campaigns?.[0]?.id || "").trim();
+
+  const stepRaw = typeof searchParams?.step === "string" ? searchParams?.step : "";
+  const step = String(stepRaw || "upload").trim().toLowerCase();
+  const effectiveStep = step === "upload" || step === "enrich" || step === "generate" || step === "review" || step === "send" || step === "replies" ? step : "upload";
+
+  const imported = typeof searchParams?.import === "string" ? searchParams?.import : "";
+  const skipped = typeof searchParams?.skipped === "string" ? searchParams?.skipped : "";
+  const enriched = typeof searchParams?.enriched === "string" ? searchParams?.enriched : "";
+  const drafted = typeof searchParams?.drafted === "string" ? searchParams?.drafted : "";
+  const sent = typeof searchParams?.sent === "string" ? searchParams?.sent : "";
+  const failed = typeof searchParams?.failed === "string" ? searchParams?.failed : "";
+  const sendCode = typeof searchParams?.send_code === "string" ? searchParams?.send_code : "";
+  const errText = typeof searchParams?.error === "string" ? searchParams?.error : "";
   const replyStatus = typeof searchParams?.reply === "string" ? searchParams?.reply : "";
   const threadParam = typeof searchParams?.thread === "string" ? searchParams?.thread : "";
 
-  const [campaignsRes, emailsRes, repliesRes, meetingsRes, runsRes, prospectsRes, selectedProspectsRes] = await Promise.all([
-    admin.from("hunting_campaigns").select("id,name,status,found_count,contacted_count,replied_count,booked_count,last_run_at,created_at").order("created_at", { ascending: false }),
-    admin.from("email_campaigns").select("id", { count: "exact", head: true }).gte("sent_at", start.toISOString()),
-    admin.from("prospects").select("id", { count: "exact", head: true }).eq("replied", true),
-    admin.from("prospects").select("id", { count: "exact", head: true }).eq("meeting_booked", true),
-    admin.from("hunting_campaign_runs").select("id,created_at,campaign_id,run_type,result_summary,status").order("created_at", { ascending: false }).limit(50),
-    admin.from("prospects").select("id,created_at,name,title,company,email,ai_score,status,last_email_sent,replied,meeting_booked,source,campaign_id").order("created_at", { ascending: false }).limit(100),
-    selectedCampaignId
-      ? admin
-          .from("prospects")
-          .select("id,created_at,name,title,company,email,domain,status,ai_score,last_email_sent,replied,meeting_booked,source,recent_activity")
-          .eq("campaign_id", selectedCampaignId)
-          .order("created_at", { ascending: false })
-          .limit(250)
-      : Promise.resolve({ data: [], error: null } as any),
-  ]);
+  if (!selectedCampaignId) {
+    return (
+      <div className={`${nunito.className} min-h-screen bg-slate-50 text-slate-900`}>
+        <div className="mx-auto max-w-3xl px-6 py-10">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 text-sm text-slate-700 shadow-sm">No campaigns found in Supabase.</div>
+        </div>
+      </div>
+    );
+  }
 
-  const campaigns = (campaignsRes.data || []) as any[];
-  const stats = {
-    active: campaigns.filter((c) => String(c.status) === "active").length,
-    emailsToday: emailsRes.count || 0,
-    replies: repliesRes.count || 0,
-    meetings: meetingsRes.count || 0,
-  };
-
-  const runs = (runsRes.data || []) as any[];
-  const prospects = (prospectsRes.data || []) as any[];
+  const selectedProspectsRes = await admin
+    .from("prospects")
+    .select("id,created_at,name,title,company,email,domain,status,last_email_sent,replied,meeting_booked,recent_activity")
+    .eq("campaign_id", selectedCampaignId)
+    .order("created_at", { ascending: false })
+    .limit(250);
   const selectedProspects = (selectedProspectsRes.data || []) as any[];
 
+  const ids = selectedProspects.map((p) => String(p.id || "")).filter(Boolean);
+  const draftsRes =
+    ids.length > 0
+      ? await admin
+          .from("email_drafts")
+          .select("id,prospect_id,subject_lines,body,status,created_at,personalization_score,confidence_score")
+          .in("prospect_id", ids)
+          .eq("status", "draft")
+          .order("created_at", { ascending: false })
+          .limit(500)
+      : ({ data: [], error: null } as any);
+  const draftsByProspect: Record<string, any> = {};
+  for (const d of (draftsRes.data || []) as any[]) {
+    const pid = String(d.prospect_id || "").trim();
+    if (!pid) continue;
+    if (!draftsByProspect[pid]) draftsByProspect[pid] = d;
+  }
+
   let latestReply: any | null = null;
-  if (selectedCampaignId && effectiveStage === "inbox" && threadParam) {
+  if (threadParam) {
     try {
       const mr = await admin
         .from("inbox_messages")
-        .select("id,from_email,to_email,subject,intent,ai_confidence,ai_summary,ai_next_action,ai_draft_subject,ai_draft_body,escalated,knowledge_refs,created_at")
+        .select("id,from_email,to_email,subject,intent,ai_confidence,ai_summary,ai_next_action,ai_draft_subject,ai_draft_body,escalated,knowledge_refs,created_at,thread_external_id")
         .eq("thread_external_id", threadParam)
         .order("created_at", { ascending: false })
         .limit(1);
       latestReply = ((mr.data || []) as any[])[0] || null;
     } catch {}
   }
-  const demoNotice = typeof searchParams?.demo === "string" ? searchParams?.demo : "";
-  const createdNotice = typeof searchParams?.created === "string" ? searchParams?.created : "";
-  const createdCode = typeof searchParams?.code === "string" ? searchParams?.code : "";
-  const createdMsg = typeof searchParams?.msg === "string" ? searchParams?.msg : "";
-  const importNotice = typeof searchParams?.import === "string" ? searchParams?.import : "";
-  const huntNotice = typeof searchParams?.hunt === "string" ? searchParams?.hunt : "";
-  const sendNotice = typeof searchParams?.send === "string" ? searchParams?.send : "";
-  const followupNotice = typeof searchParams?.followup === "string" ? searchParams?.followup : "";
-  const processNotice = typeof searchParams?.process === "string" ? searchParams?.process : "";
-  const processEnriched = typeof searchParams?.enriched === "string" ? searchParams?.enriched : "";
-  const processDrafted = typeof searchParams?.drafted === "string" ? searchParams?.drafted : "";
-  const processSkipped = typeof searchParams?.skipped === "string" ? searchParams?.skipped : "";
-  const processFailed = typeof searchParams?.failed === "string" ? searchParams?.failed : "";
-  const processSendCode = typeof searchParams?.send_code === "string" ? searchParams?.send_code : "";
 
-  const campaignsError = (campaignsRes as any)?.error;
-  const campaignsErrCode = String(campaignsError?.code || "");
-  const campaignsErrMsg = String(campaignsError?.message || "");
+  const steps = [
+    { key: "upload", label: "1 Upload CSV" },
+    { key: "enrich", label: "2 Enrich" },
+    { key: "generate", label: "3 Generate" },
+    { key: "review", label: "4 Review" },
+    { key: "send", label: "5 Send" },
+    { key: "replies", label: "6 Replies" },
+  ];
 
   return (
     <div className={`${nunito.className} min-h-screen bg-slate-50 text-slate-900`}>
       <div className="mx-auto max-w-7xl px-6 py-8">
-        {(campaignsErrCode || campaignsErrMsg) && (
-          <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            <div className="font-semibold">Database not initialized for the demo workflow</div>
-            <div className="mt-1">Campaign create/import requires Supabase tables like hunting_campaigns and prospects.</div>
-            <div className="mt-2 text-xs">Error: {campaignsErrCode ? `${campaignsErrCode} ` : ""}{campaignsErrMsg || "unknown"}</div>
+        <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xl font-semibold">Guided Workflow</div>
+              <div className="mt-1 text-sm text-slate-600">What happened, what’s happening, and what happens next.</div>
+            </div>
+            <form method="get" className="flex items-center gap-2">
+              <select name="campaign" defaultValue={selectedCampaignId} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+                {campaigns.map((c) => (
+                  <option key={String(c.id)} value={String(c.id)}>
+                    {String(c.name || "Campaign")}
+                  </option>
+                ))}
+              </select>
+              <input type="hidden" name="step" value={effectiveStep} />
+              <button type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                Load
+              </button>
+            </form>
           </div>
-        )}
-        {createdNotice && (
-          <div className={`mb-6 rounded-2xl border p-4 text-sm ${createdNotice === "ok" ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-            {createdNotice === "ok"
-              ? "Campaign created."
-              : createdNotice === "missing_name"
-                ? "Campaign name is required."
-                : createdCode === "42P01"
-                  ? "Could not create campaign: hunting_campaigns table is missing in Supabase."
-                  : `Could not create campaign. ${createdCode ? `(${createdCode}) ` : ""}${createdMsg || ""}`.trim()}
-          </div>
-        )}
-        {demoNotice && (
-          <div className={`mb-6 rounded-2xl border p-4 text-sm ${demoNotice === "sent" ? "border-green-200 bg-green-50 text-green-800" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-            {demoNotice === "sent"
-              ? "Demo email sent. Check your inbox."
-              : demoNotice === "invalid_email"
-                ? "Enter a valid email address."
-                : demoNotice === "generate_failed"
-                  ? "Could not generate outreach. Check GROQ_API_KEY."
-                  : demoNotice === "send_failed"
-                    ? "Could not send email. Check RESEND_API_KEY and verified sender."
-                    : "Demo action failed."}
-          </div>
-        )}
-        {(importNotice || huntNotice || sendNotice || followupNotice) && (
-          <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
-            {importNotice && <div>CSV import: {importNotice === "failed" ? "failed" : `${importNotice} rows imported`}</div>}
-            {huntNotice && <div>Hunt: {huntNotice === "ok" ? "completed" : "failed"}</div>}
-            {sendNotice && <div>Send: {sendNotice === "failed" ? "failed" : `${sendNotice} emails enqueued`}</div>}
-            {followupNotice && <div>Followups: {followupNotice === "failed" ? "failed" : `${followupNotice} followups enqueued`}</div>}
-          </div>
-        )}
-        {processNotice && (
-          <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
-            <div>Processed campaign: sent {processNotice}{processEnriched ? ` · enriched ${processEnriched}` : ""}{processDrafted ? ` · drafted ${processDrafted}` : ""}{processSkipped ? ` · skipped ${processSkipped}` : ""}{processFailed ? ` · failed ${processFailed}` : ""}</div>
-          </div>
-        )}
 
-        <div className="mb-6 rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-sm">
-          <div className="font-semibold text-slate-900">Demo steps</div>
-          <div className="mt-1">1) Create campaign → 2) Upload CSV (inside the campaign card) → 3) Enrich + Draft + Auto-send</div>
-          <div className="mt-2">Knowledge upload: <a className="underline" href="/admin#knowledge">Admin → Knowledge Base</a>.</div>
-        </div>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="text-xs text-slate-500">Active Campaigns</div>
-            <div className="mt-1 text-2xl font-semibold">{stats.active}</div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="text-xs text-slate-500">Emails Today</div>
-            <div className="mt-1 text-2xl font-semibold">{stats.emailsToday}</div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="text-xs text-slate-500">Replies</div>
-            <div className="mt-1 text-2xl font-semibold">{stats.replies}</div>
-          </div>
-          <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="text-xs text-slate-500">Meetings</div>
-            <div className="mt-1 text-2xl font-semibold">{stats.meetings}</div>
-          </div>
-        </div>
-
-        <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
-          <div className="space-y-6">
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold text-slate-900">Campaigns</div>
-              <div className="mt-4 space-y-4">
-                {campaigns.length === 0 ? (
-                  <div className="text-sm text-slate-600">No campaigns yet</div>
-                ) : (
-                  campaigns.map((c) => (
-                    <div key={String(c.id)} className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-slate-900">{String(c.name || "Untitled")}</div>
-                          <div className="mt-1 text-xs text-slate-600">
-                            Status: {String(c.status || "—")} · Found {Number(c.found_count || 0)} · Contacted {Number(c.contacted_count || 0)} · Replied{" "}
-                            {Number(c.replied_count || 0)} · Booked {Number(c.booked_count || 0)}
-                          </div>
-                        </div>
-                        <div className="text-right text-xs text-slate-500">Last run {c.last_run_at ? new Date(String(c.last_run_at)).toLocaleString() : "—"}</div>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <a href={`/dashboard/hunting?campaign=${encodeURIComponent(String(c.id))}`} className="rounded-xl bg-slate-900 px-3 py-2 text-sm text-white">
-                          Open Workflow
-                        </a>
-                        <form action={processCsvCampaign}>
-                          <input type="hidden" name="campaign_id" value={String(c.id)} />
-                          <input type="hidden" name="mode" value="process" />
-                          <button id={`process-${String(c.id)}`} type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
-                            Process
-                          </button>
-                        </form>
-                        <form method="post" action={`/api/campaigns/${String(c.id)}/hunt`}>
-                          <button type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
-                            Discover (Apollo)
-                          </button>
-                        </form>
-                        <form method="post" action={`/api/campaigns/${String(c.id)}/send`}>
-                          <button type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
-                            Send Batch
-                          </button>
-                        </form>
-                        <form method="post" action={`/api/campaigns/${String(c.id)}/followup`}>
-                          <button type="submit" className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
-                            Send Followups
-                          </button>
-                        </form>
-                        <a href={`/dashboard/hunting/${String(c.id)}`} className="rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100">
-                          View
-                        </a>
-                      </div>
-
-                      <CampaignCsvImporter campaignId={String(c.id)} />
-                    </div>
-                  ))
-                )}
+          {(imported || skipped || enriched || drafted || sent || failed || sendCode || errText) && (
+            <div className={`mt-4 rounded-xl border p-3 text-sm ${failed ? "border-rose-200 bg-rose-50 text-rose-900" : "border-green-200 bg-green-50 text-green-900"}`}>
+              <div className="font-semibold">Output</div>
+              <div className="mt-1">
+                {imported ? `Imported ${imported}. ` : ""}
+                {skipped ? `Skipped duplicates ${skipped}. ` : ""}
+                {enriched ? `Enriched ${enriched}. ` : ""}
+                {drafted ? `Drafts generated ${drafted}. ` : ""}
+                {sent ? `Sent ${sent}. ` : ""}
+                {failed ? `Failed ${failed}. ` : ""}
+                {sendCode ? `Last send error: ${sendCode}. ` : ""}
+                {errText ? `Last error: ${errText}. ` : ""}
               </div>
             </div>
+          )}
 
-            {selectedCampaignId && (
-              <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="text-sm font-semibold text-slate-900">Campaign Prospects</div>
-                  <div className="text-xs text-slate-500">Campaign: {selectedCampaignId}</div>
-                </div>
-                <div id="stage" className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className={`rounded-full border px-3 py-1 text-xs ${effectiveStage === "import" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}>1 Import</span>
-                    <span className={`rounded-full border px-3 py-1 text-xs ${effectiveStage === "enrich" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}>2 Enrich</span>
-                    <span className={`rounded-full border px-3 py-1 text-xs ${effectiveStage === "process" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}>3 Process</span>
-                    <span className={`rounded-full border px-3 py-1 text-xs ${effectiveStage === "inbox" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700"}`}>4 Inbox</span>
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-6">
+            {steps.map((s) => (
+              <a
+                key={s.key}
+                href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&step=${encodeURIComponent(s.key)}`}
+                className={`inline-flex items-center justify-center gap-2 rounded-xl border px-3 py-2 text-sm ${
+                  effectiveStep === s.key ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+              >
+                {s.label} <span>→</span>
+              </a>
+            ))}
+          </div>
 
-                    <a
-                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=${encodeURIComponent(effectiveStage === "import" ? "enrich" : effectiveStage === "enrich" ? "process" : "inbox")}#stage`}
-                      className="ml-auto inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 hover:bg-slate-100"
-                    >
-                      Next <span>→</span>
-                    </a>
-                    <form action={processCsvCampaign}>
-                      <input type="hidden" name="campaign_id" value={selectedCampaignId} />
-                      <input type="hidden" name="mode" value="process" />
-                      <button type="submit" className="inline-flex items-center gap-2 rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
-                        Process
-                      </button>
-                    </form>
-                  </div>
-
-                  {effectiveStage === "enrich" && (
-                    <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <div className="font-semibold">Next → Enrich domains</div>
-                        <div className="mt-1 text-xs text-slate-500">Adds domain intel per row to improve personalization.</div>
-                      </div>
-                      <form action={processCsvCampaign}>
-                        <input type="hidden" name="campaign_id" value={selectedCampaignId} />
-                        <input type="hidden" name="mode" value="enrich" />
-                        <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
-                          Run Enrichment
-                        </button>
-                      </form>
-                    </div>
-                  )}
-
-                  {effectiveStage === "process" && (
-                    <div className="mt-3">
-                      <div className="font-semibold">Next → Process</div>
-                      <div className="mt-1 text-xs text-slate-500">Drafts + sends emails, then updates dashboards.</div>
-                    </div>
-                  )}
-
-                  {effectiveStage === "inbox" && (
-                    <div id="reply" className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <div className="font-semibold">Next → Inbox signals + smart reply</div>
-                          <div className="mt-1 text-xs text-slate-500">Paste an inbound reply to classify warm/hot signals and generate a knowledge-grounded response.</div>
-                        </div>
-                        <a href="/dashboard/inbox" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Open Inbox</a>
-                      </div>
-
-                      {replyStatus === "sent" && <div className="mt-3 text-xs text-green-700">Reply drafted and sent.</div>}
-                      {replyStatus === "ok" && <div className="mt-3 text-xs text-green-700">Reply drafted.</div>}
-                      {replyStatus === "no_prospect" && <div className="mt-3 text-xs text-rose-700">Could not map the reply sender to an imported prospect email.</div>}
-                      {replyStatus === "send_failed" && <div className="mt-3 text-xs text-rose-700">Reply drafted but sending failed. Check RESEND settings.</div>}
-                      {replyStatus === "missing_openai" && <div className="mt-3 text-xs text-rose-700">Missing OPENAI_API_KEY (required for embeddings + grounding).</div>}
-                      {replyStatus === "failed" && <div className="mt-3 text-xs text-rose-700">Reply analysis failed. Check GROQ_API_KEY / OPENAI_API_KEY and try again.</div>}
-                      {replyStatus === "invalid" && <div className="mt-3 text-xs text-rose-700">Fill from_email, to_email, and body.</div>}
-
-                      <form action={analyzeInboundReply} className="mt-3 grid grid-cols-1 gap-2">
-                        <input type="hidden" name="campaign_id" value={selectedCampaignId} />
-                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                          <input name="from_email" defaultValue={String(selectedProspects?.[0]?.email || "")} placeholder="From (client email)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
-                          <input name="to_email" defaultValue={String(process.env.DEFAULT_FROM_EMAIL || "")} placeholder="To (your sending inbox)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
-                        </div>
-                        <input name="subject" placeholder="Subject (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
-                        <textarea name="body" placeholder="Paste reply body…" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" rows={5} />
-                        <label className="flex items-center gap-2 text-xs text-slate-700">
-                          <input name="auto_send" type="checkbox" defaultChecked className="h-4 w-4 rounded border-slate-300" />
-                          Auto-send reply now (recommended for demo)
-                        </label>
-                        <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">Analyze Reply</button>
-                      </form>
-
-                      {latestReply && (
-                        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-xs text-slate-500">Signals</div>
-                            <div className="flex items-center gap-2">
-                              <span className={`rounded-full border px-3 py-1 text-xs ${latestReply.escalated ? "border-rose-200 bg-rose-50 text-rose-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-                                {latestReply.escalated ? "HOT" : "WARM"}
-                              </span>
-                              <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-700">
-                                {String(latestReply.intent || "curiosity")} • {String(latestReply.ai_confidence ?? "—")}/100
-                              </span>
-                            </div>
-                          </div>
-                          {latestReply.ai_summary && <div className="mt-3 text-sm text-slate-700">{String(latestReply.ai_summary)}</div>}
-                          {latestReply.ai_draft_body && (
-                            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
-                              <div className="text-xs font-semibold text-slate-800">{String(latestReply.ai_draft_subject || "Draft reply")}</div>
-                              <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{String(latestReply.ai_draft_body)}</pre>
-                              <div className="mt-3 flex flex-wrap items-center gap-2">
-                                <a
-                                  className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
-                                  href={`mailto:${encodeURIComponent(String(latestReply.from_email || ""))}?subject=${encodeURIComponent(String(latestReply.ai_draft_subject || ""))}&body=${encodeURIComponent(String(latestReply.ai_draft_body || ""))}`}
-                                >
-                                  Open in Email Client
-                                </a>
-                                <a href="/dashboard/inbox" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-100">Open Inbox</a>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )}
-
-                  {importNotice && (
-                    <div className="mt-3 text-xs text-slate-500">Imported {importNotice} rows. Use Next → to move through stages.</div>
-                  )}
-                  {(processNotice || processFailed || processSendCode) && (
-                    <div className="mt-3 text-xs text-slate-600">
-                      {processNotice ? `Sent ${processNotice}. ` : ""}
-                      {processFailed ? `Failed ${processFailed}. ` : ""}
-                      {processSendCode ? `Last error: ${processSendCode}` : ""}
-                    </div>
-                  )}
-                </div>
-                <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50 text-slate-600">
-                      <tr>
-                        <th className="p-2 text-left">Name</th>
-                        <th className="p-2 text-left">Company</th>
-                        <th className="p-2 text-left">Email</th>
-                        <th className="p-2 text-left">Domain</th>
-                        <th className="p-2 text-left">Status</th>
-                        <th className="p-2 text-left">Last Email</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {selectedProspects.length === 0 ? (
-                        <tr>
-                          <td className="p-2 text-slate-600" colSpan={6}>
-                            No prospects in this campaign yet. Upload CSV above.
-                          </td>
-                        </tr>
-                      ) : (
-                        selectedProspects.map((p) => (
-                          <tr key={String(p.id)} className="border-t border-slate-100">
-                            <td className="p-2">{String(p.name || "—")}</td>
-                            <td className="p-2">{String(p.company || "—")}</td>
-                            <td className="p-2">{String(p.email || "—")}</td>
-                            <td className="p-2">{String(p.domain || "—")}</td>
-                            <td className="p-2">{String(p.status || "—")}</td>
-                            <td className="p-2">{p.last_email_sent ? new Date(String(p.last_email_sent)).toLocaleDateString() : "—"}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="mt-3 flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="flex flex-wrap items-center gap-2 text-sm">
-                    <a
-                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=import#stage`}
-                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${effectiveStage === "import" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
-                    >
-                      1 Import
-                    </a>
-                    <a
-                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=enrich#stage`}
-                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${effectiveStage === "enrich" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
-                    >
-                      2 Enrich <span>→</span>
-                    </a>
-                    <a
-                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=process#stage`}
-                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${effectiveStage === "process" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
-                    >
-                      3 Process <span>→</span>
-                    </a>
-                    <a
-                      href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&stage=inbox#stage`}
-                      className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 ${effectiveStage === "inbox" ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`}
-                    >
-                      4 Inbox <span>→</span>
-                    </a>
-                  </div>
-
-                  <div className="flex flex-wrap items-center gap-2">
-                    <form action={processCsvCampaign}>
-                      <input type="hidden" name="campaign_id" value={selectedCampaignId} />
-                      <input type="hidden" name="mode" value="enrich" />
-                      <button type="submit" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
-                        Run Enrich
-                      </button>
-                    </form>
-                    <form action={processCsvCampaign}>
-                      <input type="hidden" name="campaign_id" value={selectedCampaignId} />
-                      <input type="hidden" name="mode" value="process" />
-                      <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
-                        Process + Send Now
-                      </button>
-                    </form>
-                  </div>
+          <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            {effectiveStep === "upload" && (
+              <div>
+                <div className="text-sm font-semibold text-slate-900">1) Upload CSV</div>
+                <div className="mt-1 text-xs text-slate-600">Upload once. Rows appear below.</div>
+                <form method="post" encType="multipart/form-data" action={`/api/campaigns/${encodeURIComponent(selectedCampaignId)}/import`} className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                  <input type="file" name="file" accept=".csv,text/csv" className="w-full rounded-xl border border-slate-200 bg-white p-2 text-sm" required />
+                  <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                    Upload CSV
+                  </button>
+                </form>
+                <div className="mt-3">
+                  <a href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&step=enrich`} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                    Next <span>→</span>
+                  </a>
                 </div>
               </div>
             )}
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold text-slate-900">Recent Activity</div>
-              <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-slate-600">
-                    <tr>
-                      <th className="p-2 text-left">Time</th>
-                      <th className="p-2 text-left">Campaign</th>
-                      <th className="p-2 text-left">Type</th>
-                      <th className="p-2 text-left">Status</th>
-                      <th className="p-2 text-left">Summary</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {runs.length === 0 ? (
-                      <tr>
-                        <td className="p-2 text-slate-600" colSpan={5}>
-                          No recent runs
-                        </td>
-                      </tr>
-                    ) : (
-                      runs.map((r) => (
-                        <tr key={String(r.id)} className="border-t border-slate-100">
-                          <td className="p-2">{r.created_at ? new Date(String(r.created_at)).toLocaleString() : "—"}</td>
-                          <td className="p-2">{String(r.campaign_id || "—")}</td>
-                          <td className="p-2">{String(r.run_type || "—")}</td>
-                          <td className="p-2">{String(r.status || "—")}</td>
-                          <td className="p-2">{String(r.result_summary || "—")}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+            {effectiveStep === "enrich" && (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">2) Enrich</div>
+                  <div className="mt-1 text-xs text-slate-600">Adds domain intel per prospect.</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <form action={enrichCampaign}>
+                    <input type="hidden" name="campaign_id" value={selectedCampaignId} />
+                    <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                      Enrich Now
+                    </button>
+                  </form>
+                  <a href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&step=generate`} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                    Next <span>→</span>
+                  </a>
+                </div>
               </div>
-            </div>
+            )}
 
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold text-slate-900">Recent Prospects</div>
-              <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 text-slate-600">
-                    <tr>
-                      <th className="p-2 text-left">Name</th>
-                      <th className="p-2 text-left">Company</th>
-                      <th className="p-2 text-left">Email</th>
-                      <th className="p-2 text-left">Status</th>
-                      <th className="p-2 text-left">Score</th>
-                      <th className="p-2 text-left">Last Email</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {prospects.length === 0 ? (
-                      <tr>
-                        <td className="p-2 text-slate-600" colSpan={6}>
-                          No prospects yet
-                        </td>
-                      </tr>
-                    ) : (
-                      prospects.map((p) => (
-                        <tr key={String(p.id)} className="border-t border-slate-100">
-                          <td className="p-2">{String(p.name || "—")}</td>
-                          <td className="p-2">{String(p.company || "—")}</td>
-                          <td className="p-2">{String(p.email || "—")}</td>
-                          <td className="p-2">{String(p.status || "—")}</td>
-                          <td className="p-2">{p.ai_score == null ? "—" : String(p.ai_score)}</td>
-                          <td className="p-2">{p.last_email_sent ? new Date(String(p.last_email_sent)).toLocaleDateString() : "—"}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+            {effectiveStep === "generate" && (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">3) Generate personalized emails</div>
+                  <div className="mt-1 text-xs text-slate-600">Creates a draft per prospect for review.</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <form action={generateDrafts}>
+                    <input type="hidden" name="campaign_id" value={selectedCampaignId} />
+                    <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                      Generate Drafts
+                    </button>
+                  </form>
+                  <a href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&step=review`} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                    Next <span>→</span>
+                  </a>
+                </div>
               </div>
-            </div>
+            )}
+
+            {effectiveStep === "review" && (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">4) Review generated emails</div>
+                  <div className="mt-1 text-xs text-slate-600">Open each row’s draft to review subject/body.</div>
+                </div>
+                <a href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&step=send`} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                  Next <span>→</span>
+                </a>
+              </div>
+            )}
+
+            {effectiveStep === "send" && (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900">5) Send selected / Send all</div>
+                  <div className="mt-1 text-xs text-slate-600">Select rows below and send.</div>
+                </div>
+                <a href={`/dashboard/hunting?campaign=${encodeURIComponent(selectedCampaignId)}&step=replies`} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                  Next <span>→</span>
+                </a>
+              </div>
+            )}
+
+            {effectiveStep === "replies" && (
+              <div>
+                <div className="text-sm font-semibold text-slate-900">6) View AI-assisted replies</div>
+                <div className="mt-1 text-xs text-slate-600">Paste a reply to generate a grounded response.</div>
+
+                {replyStatus === "sent" && <div className="mt-3 text-xs text-green-700">Reply drafted and sent.</div>}
+                {replyStatus === "ok" && <div className="mt-3 text-xs text-green-700">Reply drafted.</div>}
+                {replyStatus === "no_prospect" && <div className="mt-3 text-xs text-rose-700">Could not map the reply sender to a prospect email.</div>}
+                {replyStatus === "send_failed" && <div className="mt-3 text-xs text-rose-700">Reply drafted but sending failed.</div>}
+                {replyStatus === "missing_openai" && <div className="mt-3 text-xs text-rose-700">Missing OPENAI_API_KEY.</div>}
+                {replyStatus === "failed" && <div className="mt-3 text-xs text-rose-700">Reply analysis failed.</div>}
+                {replyStatus === "invalid" && <div className="mt-3 text-xs text-rose-700">Fill from_email, to_email, and body.</div>}
+
+                <form action={analyzeInboundReply} className="mt-3 grid grid-cols-1 gap-2" id="reply">
+                  <input type="hidden" name="campaign_id" value={selectedCampaignId} />
+                  <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                    <input name="from_email" defaultValue={String(selectedProspects?.[0]?.email || "")} placeholder="From (client email)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
+                    <input name="to_email" defaultValue={String(process.env.DEFAULT_FROM_EMAIL || "")} placeholder="To (your sending inbox)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
+                  </div>
+                  <input name="subject" placeholder="Subject (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" />
+                  <textarea name="body" placeholder="Paste reply body…" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-900" rows={5} />
+                  <label className="flex items-center gap-2 text-xs text-slate-700">
+                    <input name="auto_send" type="checkbox" defaultChecked className="h-4 w-4 rounded border-slate-300" />
+                    Auto-send reply now
+                  </label>
+                  <button type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                    Analyze Reply
+                  </button>
+                </form>
+
+                {latestReply?.ai_draft_body && (
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-white p-3">
+                    <div className="text-xs font-semibold text-slate-800">{String(latestReply.ai_draft_subject || "Draft reply")}</div>
+                    <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{String(latestReply.ai_draft_body)}</pre>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          <div className="space-y-6">
-            <div id="quick-demo" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold text-slate-900">Send to a prospect</div>
-              <form action={sendDemoEmail} className="mt-4 space-y-3">
-                <input name="to_email" placeholder="Prospect email" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="name" placeholder="Prospect name (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="title" placeholder="Prospect title (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="company" placeholder="Company (optional)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <button type="submit" className="w-full rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
-                  Generate + Send
-                </button>
-              </form>
-              <div className="mt-3 text-xs text-slate-500">Uses live AI generation + sends via Resend.</div>
-            </div>
-            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <div className="text-sm font-semibold text-slate-900">Create Campaign</div>
-              <form action={createCampaign} className="mt-4 space-y-3">
-                <input name="name" placeholder="Campaign name" required className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="titles" placeholder="Titles (comma-separated)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="industries" placeholder="Industries (comma-separated)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="locations" placeholder="Locations (comma-separated)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="keywords" placeholder="Keywords (comma-separated)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <input name="exclude_companies" placeholder="Exclude companies (comma-separated)" className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <div className="grid grid-cols-2 gap-3">
-                  <input name="daily_prospect_limit" type="number" min={1} max={500} defaultValue={20} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                  <input name="email_daily_limit" type="number" min={1} max={500} defaultValue={10} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
+          <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200">
+            <form action={sendDrafts}>
+              <input type="hidden" name="campaign_id" value={selectedCampaignId} />
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th className="p-2 text-left">Select</th>
+                    <th className="p-2 text-left">Prospect</th>
+                    <th className="p-2 text-left">Email</th>
+                    <th className="p-2 text-left">Status</th>
+                    <th className="p-2 text-left">Draft</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {selectedProspects.length === 0 ? (
+                    <tr>
+                      <td className="p-3 text-slate-600" colSpan={5}>
+                        No prospects yet. Upload the CSV in step 1.
+                      </td>
+                    </tr>
+                  ) : (
+                    selectedProspects.map((p) => {
+                      const pid = String(p.id || "");
+                      const d = draftsByProspect[pid] || null;
+                      const subj = d ? String((d.subject_lines || [])[0] || "").trim() : "";
+                      const body = d ? String(d.body || "").trim() : "";
+                      const preview = body ? body.replace(/\s+/g, " ").slice(0, 140) + (body.length > 140 ? "…" : "") : "No draft yet";
+                      return (
+                        <tr key={pid} className="border-t border-slate-100">
+                          <td className="p-2">
+                            <input name="prospect_id" value={pid} type="checkbox" className="h-4 w-4" />
+                          </td>
+                          <td className="p-2">{String(p.name || p.company || "—")}</td>
+                          <td className="p-2">{String(p.email || "—")}</td>
+                          <td className="p-2">{String(p.status || "—")}</td>
+                          <td className="p-2">
+                            <details>
+                              <summary className="cursor-pointer text-sm text-slate-900">{subj || "Open draft"}</summary>
+                              <div className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{body || preview}</div>
+                            </details>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+
+              {effectiveStep === "send" && (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 bg-white p-3">
+                  <div className="text-xs text-slate-600">Select prospects above, then send selected or send all.</div>
+                  <div className="flex items-center gap-2">
+                    <button name="send_mode" value="selected" type="submit" className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                      Send Selected
+                    </button>
+                    <button name="send_mode" value="all" type="submit" className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
+                      Send All
+                    </button>
+                  </div>
                 </div>
-                <input name="min_ai_score" type="number" min={0} max={100} defaultValue={70} className="w-full rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-900" />
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input name="require_manual_review" type="checkbox" className="h-4 w-4" /> Require manual review (otherwise auto-send)
-                </label>
-                <label className="flex items-center gap-2 text-sm text-slate-700">
-                  <input name="send_weekends" type="checkbox" className="h-4 w-4" /> Send on weekends
-                </label>
-                <button type="submit" className="w-full rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
-                  Create
-                </button>
-              </form>
-              <div className="mt-3 text-xs text-slate-500">This demo view runs server-side (no browser Supabase or auth required).</div>
-            </div>
+              )}
+            </form>
           </div>
         </div>
       </div>
