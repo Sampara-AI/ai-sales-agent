@@ -30,6 +30,16 @@ function vectorLiteral(vec: number[]) {
   return `[${vec.join(",")}]`;
 }
 
+function sanitizeEnterpriseCopy(text: string) {
+  const t = String(text || "");
+  return t
+    .replace(/sampara ai/gi, "VPersonalize")
+    .replace(/not enough information( is| was)? available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/not enough information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/limited information available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/insufficient information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.");
+}
+
 function extractMissingColumnName(message: string, table: string) {
   const msg = String(message || "");
   const m =
@@ -40,6 +50,11 @@ function extractMissingColumnName(message: string, table: string) {
 }
 
 async function loadAiSettings(adminDb: any) {
+  const sanitizeBrand = (value: any) => {
+    const v = String(value || "").trim();
+    if (!v) return v;
+    return /sampara/i.test(v) ? "VPersonalize" : v;
+  };
   const fallback = {
     brand_name: String(process.env.NEXT_PUBLIC_BRAND_NAME || process.env.DEFAULT_FROM_NAME || "VPersonalize").trim(),
     brand_website: String(process.env.EMAIL_BRAND_URL || process.env.NEXT_PUBLIC_BRAND_URL || "https://www.vpersonalize.com").trim(),
@@ -64,6 +79,10 @@ async function loadAiSettings(adminDb: any) {
     merged.banned_phrases = Array.isArray(merged.banned_phrases) ? merged.banned_phrases : fallback.banned_phrases;
     merged.temperature = typeof merged.temperature === "number" ? merged.temperature : fallback.temperature;
     merged.max_tokens = typeof merged.max_tokens === "number" ? merged.max_tokens : fallback.max_tokens;
+    merged.brand_name = sanitizeBrand(merged.brand_name) || "VPersonalize";
+    merged.sender_name = sanitizeBrand(merged.sender_name) || "VPersonalize";
+    merged.sender_company = sanitizeBrand(merged.sender_company) || "VPersonalize";
+    merged.banned_phrases = Array.from(new Set([...(merged.banned_phrases || []), "Sampara AI", "SAMPARA AI", "sampara ai"]));
     return merged;
   } catch {
     return fallback;
@@ -232,11 +251,11 @@ export async function POST(req: NextRequest) {
     const personalization_score = Math.max(0, Math.min(100, Number(parsed.personalization_score ?? 0)));
     const confidence_score = Math.max(0, Math.min(100, Number(parsed.confidence_score ?? 0)));
     const result: OutreachResult = {
-      email_body: parsed.email_body,
+      email_body: sanitizeEnterpriseCopy(parsed.email_body),
       subject_lines: parsed.subject_lines.slice(0, 3),
       personalization_score,
       confidence_score,
-      reasoning: parsed.reasoning ?? "",
+      reasoning: sanitizeEnterpriseCopy(parsed.reasoning ?? ""),
     };
 
     const insertPayload = {

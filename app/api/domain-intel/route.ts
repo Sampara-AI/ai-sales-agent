@@ -66,7 +66,7 @@ export async function POST(req: Request) {
       "Rules:\n" +
       "- company_summary: 2-3 sentences max\n" +
       "- personalization_hooks: 3-5 bullets, specific and safe (no hallucinations)\n" +
-      "- if data is insufficient, say so in caveats\n";
+      '- if enrichment signals are unavailable, add a caveat like: "Additional enrichment signals unavailable. Using imported context + domain intelligence."\n';
 
     const user = JSON.stringify({
       domain,
@@ -100,4 +100,3 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

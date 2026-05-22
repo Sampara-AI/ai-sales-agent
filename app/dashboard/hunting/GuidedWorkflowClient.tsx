@@ -26,12 +26,24 @@ type Draft = {
 };
 
 type StepKey = "upload" | "enrich" | "generate" | "review" | "approve" | "send";
+type WorkflowStage = "start" | "uploaded" | "enriched" | "reviewing" | "approved" | "sending" | "sent" | "classified";
 
 function isValidEmail(email: string) {
   return /[^@\s]+@[^@\s]+\.[^@\s]+/.test(email);
 }
 
 const DEMO_MAX_ROWS = 5;
+
+function sanitizeEnterpriseCopy(text: string) {
+  const t = String(text || "");
+  return t
+    .replace(/sampara ai/gi, "VPersonalize")
+    .replace(/not enough information( is| was)? available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/not enough information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/limited information available about the prospect/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/limited information available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/insufficient information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.");
+}
 
 function Spinner() {
   return <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />;
@@ -49,6 +61,14 @@ export default function GuidedWorkflowClient(props: {
 
   const [campaignId, setCampaignId] = useState(props.initialCampaignId);
   const [step, setStep] = useState<StepKey>(props.initialStep);
+  const [workflowStage, setWorkflowStage] = useState<WorkflowStage>(() => {
+    const valid = (props.initialProspects || []).filter((p) => isValidEmail(String(p.email || "").trim().toLowerCase()));
+    if (valid.length === 0) return "start";
+    const allEnriched = valid.length > 0 && valid.every((p) => String(p.status || "") === "researched");
+    if ((props.initialDrafts || []).length > 0) return "reviewing";
+    if (allEnriched) return "enriched";
+    return "uploaded";
+  });
   const [prospects, setProspects] = useState<Prospect[]>(props.initialProspects);
   const [drafts, setDrafts] = useState<Draft[]>(props.initialDrafts);
 
@@ -75,6 +95,8 @@ export default function GuidedWorkflowClient(props: {
   const [replyDraft, setReplyDraft] = useState<any | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [progress, setProgress] = useState<null | { current: number; total: number; label: string }>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewProspectId, setReviewProspectId] = useState<string | null>(null);
 
   const refs = {
     top: useRef<HTMLDivElement | null>(null),
@@ -101,21 +123,49 @@ export default function GuidedWorkflowClient(props: {
 
   const unlock = useMemo(() => {
     const hasProspects = activeProspects.length > 0;
-    const enrichedCount = activeProspects.filter((p) => String(p.status || "") === "researched").length;
-    const allEnriched = hasProspects && enrichedCount === activeProspects.length;
-    const draftsCount = Object.keys(draftByProspect).length;
-    const anyDrafted = draftsCount > 0;
-    const approvedCount = Object.values(approved).filter(Boolean).length;
-    const anyApproved = approvedCount > 0;
-    return {
-      upload: true,
-      enrich: hasProspects,
-      generate: allEnriched,
-      review: anyDrafted,
-      approve: anyDrafted,
-      send: anyApproved,
-    };
-  }, [activeProspects, draftByProspect, approved]);
+    const anyDrafted =
+      Object.keys(draftByProspect).length > 0 || activeProspects.some((p) => !!String(rowState[p.id]?.draft_body || "").trim());
+    const anyApproved = Object.values(approved).some(Boolean);
+    if (!hasProspects) {
+      return { upload: true, enrich: false, generate: false, review: false, approve: false, send: false };
+    }
+    switch (workflowStage) {
+      case "start":
+        return { upload: true, enrich: false, generate: false, review: false, approve: false, send: false };
+      case "uploaded":
+        return { upload: true, enrich: true, generate: false, review: anyDrafted, approve: anyDrafted, send: anyApproved };
+      case "enriched":
+        return { upload: true, enrich: true, generate: true, review: anyDrafted, approve: anyDrafted, send: anyApproved };
+      case "reviewing":
+        return { upload: true, enrich: true, generate: true, review: true, approve: true, send: anyApproved };
+      case "approved":
+        return { upload: true, enrich: true, generate: true, review: true, approve: true, send: true };
+      case "sending":
+        return { upload: true, enrich: true, generate: true, review: true, approve: true, send: true };
+      case "sent":
+        return { upload: true, enrich: true, generate: true, review: true, approve: true, send: true };
+      case "classified":
+        return { upload: true, enrich: true, generate: true, review: true, approve: true, send: true };
+      default:
+        return { upload: true, enrich: true, generate: false, review: anyDrafted, approve: anyDrafted, send: anyApproved };
+    }
+  }, [activeProspects, draftByProspect, rowState, approved, workflowStage]);
+
+  useEffect(() => {
+    const hasProspects = activeProspects.length > 0;
+    const allEnriched = hasProspects && activeProspects.every((p) => String(p.status || "") === "researched");
+    const anyDrafted =
+      Object.keys(draftByProspect).length > 0 || activeProspects.some((p) => !!String(rowState[p.id]?.draft_body || "").trim());
+    const anyApproved = Object.values(approved).some(Boolean);
+
+    let next = workflowStage;
+    if (next === "start" && hasProspects) next = "uploaded";
+    if (next === "uploaded" && allEnriched) next = "enriched";
+    if ((next === "uploaded" || next === "enriched") && anyDrafted) next = "reviewing";
+    if (next === "reviewing" && anyApproved) next = "approved";
+
+    if (next !== workflowStage) setWorkflowStage(next);
+  }, [activeProspects, draftByProspect, rowState, approved, workflowStage]);
 
   useEffect(() => {
     try {
@@ -124,6 +174,11 @@ export default function GuidedWorkflowClient(props: {
       if (raw) setApproved(JSON.parse(raw));
       else setApproved({});
     } catch {}
+    setWorkflowStage("start");
+    setRowState({});
+    setReplyDraft(null);
+    setReviewOpen(false);
+    setReviewProspectId(null);
   }, [campaignId]);
 
   useEffect(() => {
@@ -161,6 +216,30 @@ export default function GuidedWorkflowClient(props: {
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  const openReview = (pid: string) => {
+    setReviewProspectId(pid);
+    setReviewOpen(true);
+  };
+
+  const getDraftPreview = (pid: string) => {
+    const d = draftByProspect[pid] || null;
+    const rs = rowState[pid] || null;
+    const subject = sanitizeEnterpriseCopy((d ? String((d.subject_lines || [])[0] || "").trim() : "") || String(rs?.draft_subject || "").trim());
+    const body = sanitizeEnterpriseCopy((d ? String(d.body || "").trim() : "") || String(rs?.draft_body || "").trim());
+    const reasoning = sanitizeEnterpriseCopy(String(rs?.reasoning || "").trim());
+    const knowledgeUsed = Boolean(rs?.knowledge_used);
+    const knowledgePreview = sanitizeEnterpriseCopy(String(rs?.knowledge_preview || "").trim());
+    return { subject, body, reasoning, knowledgeUsed, knowledgePreview };
+  };
+
+  const openFirstDraft = () => {
+    const first = activeProspects.find((p) => {
+      const pv = getDraftPreview(p.id);
+      return !!pv.body;
+    });
+    if (first) openReview(first.id);
+  };
+
   const refresh = async (cid: string) => {
     const p = await fetch(`/api/campaigns/${encodeURIComponent(cid)}/prospects`, { cache: "no-store" }).then((r) => r.json());
     if (p?.success) setProspects(p.prospects || []);
@@ -179,11 +258,10 @@ export default function GuidedWorkflowClient(props: {
               ? "Generate drafts first."
               : "Approve at least one draft first.",
       );
-      return;
     }
     setStep(next);
     setUrl(campaignId, next);
-    scrollTo(next);
+    requestAnimationFrame(() => scrollTo(next));
   };
 
   const runUpload = async (file: File) => {
@@ -199,6 +277,7 @@ export default function GuidedWorkflowClient(props: {
       if (!res.ok || !j?.success) throw new Error(String(j?.error || "CSV import failed"));
       await refresh(campaignId);
       setBanner(`${Number(j.imported || 0) + Number(j.attached_existing || 0)} prospects imported successfully`);
+      setWorkflowStage("uploaded");
       setStep("enrich");
       setUrl(campaignId, "enrich");
       scrollTo("enrich");
@@ -242,6 +321,7 @@ export default function GuidedWorkflowClient(props: {
     setBusy(null);
     setProgress(null);
     setBanner("Enrichment complete");
+    setWorkflowStage("enriched");
     setStep("generate");
     setUrl(campaignId, "generate");
     scrollTo("generate");
@@ -273,9 +353,9 @@ export default function GuidedWorkflowClient(props: {
             state: "email_ready",
             draft_subject: subj,
             draft_body: body,
-            reasoning: String(j?.reasoning || "").trim(),
+            reasoning: sanitizeEnterpriseCopy(String(j?.reasoning || "").trim()),
             knowledge_used: Boolean(j?.knowledge_used),
-            knowledge_preview: String(j?.knowledge_preview || "").trim(),
+            knowledge_preview: sanitizeEnterpriseCopy(String(j?.knowledge_preview || "").trim()),
           },
         }));
       } catch (e: any) {
@@ -289,9 +369,11 @@ export default function GuidedWorkflowClient(props: {
     setBusy(null);
     setProgress(null);
     setBanner("Drafts generated");
+    setWorkflowStage("reviewing");
     setStep("review");
     setUrl(campaignId, "review");
     scrollTo("review");
+    requestAnimationFrame(() => openFirstDraft());
   };
 
   const approveAll = () => {
@@ -302,12 +384,14 @@ export default function GuidedWorkflowClient(props: {
       if (hasDraft) next[pid] = true;
     }
     setApproved(next);
+    setWorkflowStage("approved");
     setBanner("All drafts approved");
   };
 
   const runSendApproved = async () => {
     setBanner("");
     setBusy({ step: "send", label: "Sending…" });
+    setWorkflowStage("sending");
 
     const list = activeProspects.filter((p) => approved[p.id]);
     const total = list.length;
@@ -366,6 +450,7 @@ export default function GuidedWorkflowClient(props: {
     setBusy(null);
     setProgress(null);
     setBanner("Send complete");
+    setWorkflowStage("sent");
     setStep("send");
     setUrl(campaignId, "send");
     scrollTo("send");
@@ -384,6 +469,7 @@ export default function GuidedWorkflowClient(props: {
       const j = await res.json().catch(() => ({} as any));
       if (!res.ok || !j?.success) throw new Error(String(j?.error || "reply failed"));
       setReplyDraft(j);
+      setWorkflowStage("classified");
       setBanner("Response generated");
     } catch (e: any) {
       setBanner(String(e?.message || "reply failed"));
@@ -405,8 +491,8 @@ export default function GuidedWorkflowClient(props: {
         body: JSON.stringify({
           prospect_id: replyDraft.prospect_id,
           to_email: replyInput.from_email,
-          subject: replyDraft.draft_subject || `Re: ${replyInput.subject || "Quick question"}`,
-          body: replyDraft.draft_body,
+          subject: replyDraft.response_subject || `Re: ${replyInput.subject || "Quick question"}`,
+          body: replyDraft.response_body,
           enqueue_only: false,
           run_now: true,
           allow_replied: true,
@@ -633,11 +719,17 @@ export default function GuidedWorkflowClient(props: {
 
           <div ref={refs.review}>
             <div className="text-sm font-semibold text-slate-900">4) Review</div>
-            <div className="mt-1 text-xs text-slate-600">Open drafts below to review subject, personalization, and KB grounding.</div>
+            <div className="mt-1 text-xs text-slate-600">After generation, the first draft auto-opens. Use “Review email” in the table to open any draft.</div>
             <div className="mt-3">
               <button
                 type="button"
-                onClick={() => goStep("approve")}
+                onClick={() => {
+                  setBanner("Approve drafts in the table to enable Send.");
+                  setWorkflowStage("approved");
+                  setStep("approve");
+                  setUrl(campaignId, "approve");
+                  requestAnimationFrame(() => scrollTo("approve"));
+                }}
                 disabled={!!busy}
                 className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
               >
@@ -711,15 +803,15 @@ export default function GuidedWorkflowClient(props: {
                 const rs = rowState[pid] || null;
                 const state = rs?.state || String(p.status || "pending");
                 const err = rs?.error || "";
-                const reasoning = String(rs?.reasoning || "").trim();
+                const reasoning = sanitizeEnterpriseCopy(String(rs?.reasoning || "").trim());
                 const knowledgeUsed = Boolean(rs?.knowledge_used);
-                const knowledgePreview = String(rs?.knowledge_preview || "").trim();
+                const knowledgePreview = sanitizeEnterpriseCopy(String(rs?.knowledge_preview || "").trim());
                 const fallbackSubj = String(rs?.draft_subject || "").trim();
                 const fallbackBody = String(rs?.draft_body || "").trim();
-                const subj = d ? String((d.subject_lines || [])[0] || "").trim() : fallbackSubj;
-                const body = d ? String(d.body || "").trim() : fallbackBody;
+                const subj = sanitizeEnterpriseCopy(d ? String((d.subject_lines || [])[0] || "").trim() : fallbackSubj);
+                const body = sanitizeEnterpriseCopy(d ? String(d.body || "").trim() : fallbackBody);
                 const preview = body ? body.replace(/\s+/g, " ").slice(0, 120) + (body.length > 120 ? "…" : "") : "No draft yet";
-                const rationale = String(p.recent_activity || "").trim();
+                const rationale = sanitizeEnterpriseCopy(String(p.recent_activity || "").trim());
 
                 return (
                   <tr key={pid} className="border-t border-slate-100">
@@ -741,30 +833,20 @@ export default function GuidedWorkflowClient(props: {
                       {err && <div className="mt-1 text-xs text-rose-700">{err}</div>}
                     </td>
                     <td className="p-2">
-                      <details>
-                        <summary className="cursor-pointer text-sm text-slate-900">{subj || "Open draft"}</summary>
-                        <div className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{body || preview}</div>
-                        {rationale && (
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
-                            <div className="font-semibold text-slate-800">Personalization evidence</div>
-                            <div className="mt-1 whitespace-pre-wrap">{rationale}</div>
-                          </div>
-                        )}
-                        {(reasoning || knowledgePreview) && (
-                          <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-700">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="font-semibold text-slate-800">Grounding</div>
-                              <div className="text-xs text-slate-500">{knowledgeUsed ? "KB used" : "KB not used"}</div>
-                            </div>
-                            {reasoning && <div className="mt-2 whitespace-pre-wrap">{reasoning}</div>}
-                            {knowledgePreview && (
-                              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 p-3 whitespace-pre-wrap">
-                                {knowledgePreview}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </details>
+                      <div className="flex flex-col gap-2">
+                        <div className="text-sm text-slate-900">{subj || "Draft not generated yet"}</div>
+                        <div className="text-xs text-slate-600">{preview}</div>
+                        <button
+                          type="button"
+                          onClick={() => openReview(pid)}
+                          disabled={!body || !!busy}
+                          className={`w-fit rounded-xl px-3 py-1.5 text-sm ${
+                            body && !busy ? "bg-slate-900 text-white" : "cursor-not-allowed border border-slate-200 bg-white text-slate-400"
+                          }`}
+                        >
+                          Review email →
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -776,6 +858,76 @@ export default function GuidedWorkflowClient(props: {
       {prospects.length > DEMO_MAX_ROWS && (
         <div className="mt-3 text-xs text-slate-500">
           Showing first {DEMO_MAX_ROWS} rows for a smooth demo. Upload 5 for best results.
+        </div>
+      )}
+
+      {reviewOpen && reviewProspectId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5 shadow-xl">
+            {(() => {
+              const p = activeProspects.find((x) => x.id === reviewProspectId) || null;
+              const pv = getDraftPreview(reviewProspectId);
+              const subject = pv.subject || "Draft email";
+              const body = pv.body || "";
+              const evidence = sanitizeEnterpriseCopy(String(p?.recent_activity || "").trim());
+              const grounding = pv.knowledgePreview;
+              const groundingStatus = pv.knowledgeUsed ? "KB used" : "KB not used";
+              return (
+                <div>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-500">Email draft</div>
+                      <div className="mt-1 text-lg font-semibold text-slate-900">{subject}</div>
+                      <div className="mt-1 text-xs text-slate-600">{String(p?.email || "")}</div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setApproved((s) => ({ ...s, [reviewProspectId]: true }));
+                          setBanner("Draft approved");
+                        }}
+                        disabled={!!busy || !body}
+                        className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
+                      >
+                        Approve
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReviewOpen(false);
+                          setReviewProspectId(null);
+                        }}
+                        className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                      >
+                        Close
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="text-xs font-semibold text-slate-700">Email to be sent</div>
+                    <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-900">{body || "Draft not available yet."}</pre>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="text-xs font-semibold text-slate-700">Personalization evidence</div>
+                      <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{evidence || "Imported context + domain intelligence"}</div>
+                    </div>
+                    <div className="rounded-xl border border-slate-200 bg-white p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-xs font-semibold text-slate-700">KB grounding</div>
+                        <div className="text-xs text-slate-500">{groundingStatus}</div>
+                      </div>
+                      {pv.reasoning && <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{pv.reasoning}</div>}
+                      {grounding && <div className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{grounding}</div>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+          </div>
         </div>
       )}
 
@@ -819,21 +971,25 @@ export default function GuidedWorkflowClient(props: {
             <button type="button" onClick={generateReply} disabled={!!busy} className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
               Generate Response
             </button>
-            <button type="button" onClick={sendReply} disabled={!!busy || !replyDraft?.draft_body} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
+            <button type="button" onClick={sendReply} disabled={!!busy || !replyDraft?.response_body} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
               Send Response
             </button>
           </div>
         </div>
 
-        {replyDraft?.draft_body && (
+        {replyDraft?.response_body && (
           <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-semibold text-slate-800">{String(replyDraft.draft_subject || "Draft reply")}</div>
-              <div className="text-xs text-slate-500">
-                {String(replyDraft.intent || "—")} • {String(replyDraft.ai_confidence ?? "—")}/100 {replyDraft.escalated ? "• HOT" : ""}
-              </div>
+              <div className="text-xs font-semibold text-slate-800">{String(replyDraft.response_subject || "Draft reply")}</div>
+              <div className="text-xs text-slate-500">{String(replyDraft.signal || "—")} • {String(replyDraft.confidence ?? "—")}/100</div>
             </div>
-            <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{String(replyDraft.draft_body)}</pre>
+            {replyDraft.signal_reason && <div className="mt-2 text-xs text-slate-700">{String(replyDraft.signal_reason)}</div>}
+            {replyDraft.recommended_action && (
+              <div className="mt-2 text-xs text-slate-700">
+                <span className="font-semibold text-slate-800">Recommended action:</span> {String(replyDraft.recommended_action)}
+              </div>
+            )}
+            <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{String(replyDraft.response_body)}</pre>
           </div>
         )}
       </div>

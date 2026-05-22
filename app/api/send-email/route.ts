@@ -21,6 +21,11 @@ type SendBody = {
 };
 
 async function loadAiSettings(adminDb: any) {
+  const sanitizeBrand = (value: any) => {
+    const v = String(value || "").trim();
+    if (!v) return v;
+    return /sampara/i.test(v) ? "VPersonalize" : v;
+  };
   const fallback = {
     brand_name: String(process.env.NEXT_PUBLIC_BRAND_NAME || process.env.DEFAULT_FROM_NAME || "VPersonalize").trim(),
     brand_website: String(process.env.EMAIL_BRAND_URL || process.env.NEXT_PUBLIC_BRAND_URL || "https://www.vpersonalize.com").trim(),
@@ -35,7 +40,11 @@ async function loadAiSettings(adminDb: any) {
     const res = await adminDb.from("audit_events").select("meta").eq("action", "ai_settings").order("created_at", { ascending: false }).limit(1);
     const meta = ((res.data || []) as any[])[0]?.meta;
     if (!meta || typeof meta !== "object") return fallback;
-    return { ...fallback, ...meta };
+    const merged = { ...fallback, ...meta };
+    merged.brand_name = sanitizeBrand(merged.brand_name) || "VPersonalize";
+    merged.sender_name = sanitizeBrand(merged.sender_name) || "VPersonalize";
+    merged.sender_company = sanitizeBrand(merged.sender_company) || "VPersonalize";
+    return merged;
   } catch {
     return fallback;
   }

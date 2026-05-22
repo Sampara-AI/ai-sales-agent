@@ -23,6 +23,11 @@ function vectorLiteral(vec: number[]) {
 }
 
 async function loadAiSettings(admin: any) {
+  const sanitizeBrand = (value: any) => {
+    const v = String(value || "").trim();
+    if (!v) return v;
+    return /sampara/i.test(v) ? "VPersonalize" : v;
+  };
   const fallback = {
     brand_name: String(process.env.NEXT_PUBLIC_BRAND_NAME || process.env.DEFAULT_FROM_NAME || "VPersonalize").trim(),
     brand_website: String(process.env.EMAIL_BRAND_URL || process.env.NEXT_PUBLIC_BRAND_URL || "https://www.vpersonalize.com").trim(),
@@ -41,10 +46,22 @@ async function loadAiSettings(admin: any) {
     merged.banned_phrases = Array.isArray(merged.banned_phrases) ? merged.banned_phrases : fallback.banned_phrases;
     merged.temperature = typeof merged.temperature === "number" ? merged.temperature : fallback.temperature;
     merged.max_tokens = typeof merged.max_tokens === "number" ? merged.max_tokens : fallback.max_tokens;
+    merged.brand_name = sanitizeBrand(merged.brand_name) || "VPersonalize";
+    merged.banned_phrases = Array.from(new Set([...(merged.banned_phrases || []), "Sampara AI", "SAMPARA AI", "sampara ai"]));
     return merged;
   } catch {
     return fallback;
   }
+}
+
+function sanitizeEnterpriseCopy(text: string) {
+  const t = String(text || "");
+  return t
+    .replace(/sampara ai/gi, "VPersonalize")
+    .replace(/not enough information( is| was)? available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/not enough information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/limited information available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/insufficient information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.");
 }
 
 export async function POST(req: NextRequest) {
@@ -175,11 +192,23 @@ export async function POST(req: NextRequest) {
   const intent = String(parsed?.intent || "").trim() || "curiosity";
   const escalate = Boolean(parsed?.escalate);
   const confidence = Math.max(0, Math.min(100, Number(parsed?.confidence ?? 0)));
-  const summary = String(parsed?.summary || "").trim();
-  const nextAction = String(parsed?.next_action || "").trim();
+  const summary = sanitizeEnterpriseCopy(String(parsed?.summary || "").trim());
+  const nextAction = sanitizeEnterpriseCopy(String(parsed?.next_action || "").trim());
   const responseSubject = String(parsed?.response_subject || "").trim() || (subject ? `Re: ${subject}` : "Re:");
-  const responseBody = String(parsed?.response_body || "").trim();
+  const responseBody = sanitizeEnterpriseCopy(String(parsed?.response_body || "").trim());
   const references = Array.isArray(parsed?.references) ? parsed.references : [];
+
+  let signal: "Hot" | "Warm" | "Cold" | "Dead" | "Escalation Required" = "Cold";
+  if (intent === "unsubscribe") signal = "Dead";
+  else if (escalate) signal = "Escalation Required";
+  else if (intent === "meeting_intent") signal = "Hot";
+  else if (intent === "pricing_inquiry") signal = "Hot";
+  else if (intent === "implementation_inquiry" || intent === "technical_evaluation") signal = "Warm";
+  else if (intent === "objection") signal = "Cold";
+  else signal = "Cold";
+
+  const recommendedAction = nextAction || (signal === "Hot" ? "Schedule a quick call." : signal === "Warm" ? "Answer questions and propose next step." : "Ask one clarifying question.");
+  const signalReason = summary || (signal === "Escalation Required" ? "Reply requires human review due to commercial/technical risk." : "Classified based on reply content.");
 
   const upd = await admin
     .from("inbox_messages")
@@ -193,7 +222,7 @@ export async function POST(req: NextRequest) {
       ai_draft_body: responseBody,
       knowledge_refs: references,
       processed_at: new Date().toISOString(),
-      classification: intent,
+      classification: signal,
     })
     .eq("id", inboxMessageId);
   if (upd.error) return NextResponse.json({ error: upd.error.message }, { status: 500 });
@@ -201,10 +230,14 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({
     success: true,
     thread: { mailbox, external_id: externalThreadId, prospect_id: prospectId },
+    prospect_id: prospectId,
     inbound_message_id: inboxMessageId,
     intent,
     escalate,
     confidence,
+    signal,
+    signal_reason: signalReason,
+    recommended_action: recommendedAction,
     summary,
     next_action: nextAction,
     response_subject: responseSubject,
