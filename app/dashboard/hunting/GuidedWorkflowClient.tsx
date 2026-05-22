@@ -85,6 +85,7 @@ export default function GuidedWorkflowClient(props: {
         knowledge_used?: boolean;
         draft_subject?: string;
         draft_body?: string;
+        sent_at?: string;
       }
     >
   >({});
@@ -388,12 +389,13 @@ export default function GuidedWorkflowClient(props: {
     setBanner("All drafts approved");
   };
 
-  const runSendApproved = async () => {
+  const runSendApproved = async (forcedProspectIds?: string[]) => {
     setBanner("");
     setBusy({ step: "send", label: "Sending…" });
     setWorkflowStage("sending");
 
-    const list = activeProspects.filter((p) => approved[p.id]);
+    const forcedSet = new Set((forcedProspectIds || []).filter(Boolean));
+    const list = forcedSet.size ? activeProspects.filter((p) => forcedSet.has(p.id)) : activeProspects.filter((p) => approved[p.id]);
     const total = list.length;
     if (total === 0) {
       setBusy(null);
@@ -438,7 +440,7 @@ export default function GuidedWorkflowClient(props: {
         });
         const j = await res.json().catch(() => ({} as any));
         if (!res.ok || !j?.success) throw new Error(String(j?.error || "send failed"));
-        setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "sending" }), state: "sent" } }));
+        setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "sending" }), state: "sent", sent_at: new Date().toISOString() } }));
       } catch (e: any) {
         setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "sending" }), state: "failed", error: String(e?.message || "send failed") } }));
       }
@@ -626,6 +628,50 @@ export default function GuidedWorkflowClient(props: {
         })}
       </div>
 
+      {unlock.review && (
+        <div className="sticky bottom-0 z-20 mt-4 rounded-2xl border border-slate-200 bg-white/95 p-3 backdrop-blur">
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div className="text-xs text-slate-600">
+              <span className="font-semibold text-slate-900">Workflow:</span> {workflowStage === "reviewing" ? "Review drafts" : workflowStage === "approved" ? "Approved" : workflowStage === "sending" ? "Sending" : workflowStage === "sent" ? "Sent" : "In progress"}
+              {progress ? ` • ${progress.current}/${progress.total}` : ""}
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  openFirstDraft();
+                  setBanner("Review drafts, then approve and send.");
+                }}
+                disabled={!!busy}
+                className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
+              >
+                Review All Drafts
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ids = activeProspects
+                    .map((p) => p.id)
+                    .filter((id) => {
+                      const pv = getDraftPreview(id);
+                      return !!pv.body;
+                    });
+                  approveAll();
+                  setStep("send");
+                  setUrl(campaignId, "send");
+                  requestAnimationFrame(() => scrollTo("send"));
+                  await runSendApproved(ids);
+                }}
+                disabled={!!busy}
+                className="rounded-xl bg-emerald-600 px-4 py-2 text-sm text-white"
+              >
+                Approve & Send All
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="mt-6 rounded-xl border border-slate-200 bg-slate-50 p-4">
         <div className="grid grid-cols-1 gap-4">
           <div ref={refs.upload}>
@@ -706,7 +752,10 @@ export default function GuidedWorkflowClient(props: {
               </button>
               <button
                 type="button"
-                onClick={() => goStep("review")}
+                onClick={() => {
+                  goStep("review");
+                  requestAnimationFrame(() => openFirstDraft());
+                }}
                 disabled={!unlock.review || !!busy}
                 className={`inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm ${
                   unlock.review && !busy ? "border-slate-200 bg-white text-slate-700 hover:bg-slate-50" : "cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400"
@@ -720,18 +769,55 @@ export default function GuidedWorkflowClient(props: {
           <div ref={refs.review}>
             <div className="text-sm font-semibold text-slate-900">4) Review</div>
             <div className="mt-1 text-xs text-slate-600">After generation, the first draft auto-opens. Use “Review email” in the table to open any draft.</div>
-            <div className="mt-3">
+            <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => {
-                  setBanner("Approve drafts in the table to enable Send.");
-                  setWorkflowStage("approved");
-                  setStep("approve");
-                  setUrl(campaignId, "approve");
-                  requestAnimationFrame(() => scrollTo("approve"));
+                  openFirstDraft();
+                  setBanner("Review drafts, then approve to enable sending.");
                 }}
-                disabled={!!busy}
-                className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                disabled={!!busy || !unlock.review}
+                className={`rounded-xl px-4 py-2 text-sm ${!busy && unlock.review ? "bg-slate-900 text-white" : "cursor-not-allowed border border-slate-200 bg-white text-slate-400"}`}
+              >
+                Review All Drafts
+              </button>
+              <button
+                type="button"
+                onClick={approveAll}
+                disabled={!!busy || !unlock.review}
+                className={`rounded-xl border px-4 py-2 text-sm ${
+                  !busy && unlock.review ? "border-slate-200 bg-white text-slate-700 hover:bg-slate-50" : "cursor-not-allowed border-slate-200 bg-white text-slate-400"
+                }`}
+              >
+                Approve All Drafts
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  const ids = activeProspects
+                    .map((p) => p.id)
+                    .filter((id) => {
+                      const pv = getDraftPreview(id);
+                      return !!pv.body;
+                    });
+                  approveAll();
+                  setStep("send");
+                  setUrl(campaignId, "send");
+                  requestAnimationFrame(() => scrollTo("send"));
+                  await runSendApproved(ids);
+                }}
+                disabled={!!busy || !unlock.review}
+                className={`rounded-xl px-4 py-2 text-sm ${!busy && unlock.review ? "bg-emerald-600 text-white" : "cursor-not-allowed border border-slate-200 bg-white text-slate-400"}`}
+              >
+                Approve & Send All
+              </button>
+              <button
+                type="button"
+                onClick={() => goStep("approve")}
+                disabled={!!busy || !unlock.review}
+                className={`rounded-xl border px-4 py-2 text-sm ${
+                  !busy && unlock.review ? "border-slate-200 bg-white text-slate-700 hover:bg-slate-50" : "cursor-not-allowed border-slate-200 bg-white text-slate-400"
+                }`}
               >
                 Continue to Approve <span>→</span>
               </button>
@@ -762,12 +848,12 @@ export default function GuidedWorkflowClient(props: {
           </div>
 
           <div ref={refs.send}>
-            <div className="text-sm font-semibold text-slate-900">5) Send</div>
+            <div className="text-sm font-semibold text-slate-900">6) Send</div>
             <div className="mt-1 text-xs text-slate-600">queued → sending → sent → failed. Failures show inline error.</div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={runSendApproved}
+                onClick={() => runSendApproved()}
                 disabled={!!busy}
                 className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white"
               >
@@ -829,7 +915,50 @@ export default function GuidedWorkflowClient(props: {
                     <td className="p-2">{String(p.name || p.company || p.domain || "—")}</td>
                     <td className="p-2">{String(p.email || "—")}</td>
                     <td className="p-2">
-                      <div className="text-sm text-slate-900">{state}</div>
+                      {(() => {
+                        const sentAt = String(rs?.sent_at || p.last_email_sent || "").trim();
+                        const draftReady = !!body;
+                        const approvedFlag = !!approved[pid];
+                        const normalized = String(state || "").toLowerCase();
+                        let label = "pending";
+                        let cls = "bg-slate-100 text-slate-700 border-slate-200";
+                        if (normalized === "failed") {
+                          label = "failed";
+                          cls = "bg-rose-50 text-rose-700 border-rose-200";
+                        } else if (normalized === "sent") {
+                          label = "sent";
+                          cls = "bg-emerald-50 text-emerald-700 border-emerald-200";
+                        } else if (normalized === "sending") {
+                          label = "sending";
+                          cls = "bg-sky-50 text-sky-700 border-sky-200";
+                        } else if (normalized === "queued") {
+                          label = "queued";
+                          cls = "bg-slate-50 text-slate-700 border-slate-200";
+                        } else if (approvedFlag) {
+                          label = "approved";
+                          cls = "bg-violet-50 text-violet-700 border-violet-200";
+                        } else if (draftReady) {
+                          label = "draft_ready";
+                          cls = "bg-amber-50 text-amber-800 border-amber-200";
+                        } else if (normalized === "email_ready") {
+                          label = "draft_ready";
+                          cls = "bg-amber-50 text-amber-800 border-amber-200";
+                        } else if (normalized === "researched" || normalized === "enriched") {
+                          label = "enriched";
+                          cls = "bg-slate-50 text-slate-700 border-slate-200";
+                        }
+                        return (
+                          <div className="flex flex-col gap-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <span className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-xs font-semibold ${cls}`}>
+                                {label}
+                                {label === "sending" ? <Spinner /> : null}
+                              </span>
+                              {sentAt ? <span className="text-xs text-slate-500">Sent {new Date(sentAt).toLocaleString()}</span> : null}
+                            </div>
+                          </div>
+                        );
+                      })()}
                       {err && <div className="mt-1 text-xs text-rose-700">{err}</div>}
                     </td>
                     <td className="p-2">
@@ -932,10 +1061,18 @@ export default function GuidedWorkflowClient(props: {
       )}
 
       <div className="mt-6 rounded-xl border border-slate-200 bg-white p-4">
-        <div className="text-sm font-semibold text-slate-900">AI-assisted replies</div>
-        <div className="mt-1 text-xs text-slate-600">Paste a reply to generate an intelligent, grounded response (optional for demo).</div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="text-sm font-semibold text-slate-900">Reply analysis</div>
+          {activeProspects.some((p) => !!String(p.last_email_sent || "").trim()) || activeProspects.some((p) => String(rowState[p.id]?.state || "") === "sent") ? (
+            <div className="text-xs text-slate-600">Awaiting reply…</div>
+          ) : (
+            <div className="text-xs text-slate-600">Send at least one email to analyze a reply.</div>
+          )}
+        </div>
+        <div className="mt-1 text-xs text-slate-600">Incoming Client Reply → Analyze Reply → Signal Classification → Suggested Response</div>
 
         <div className="mt-3 grid grid-cols-1 gap-2" id="reply">
+          <div className="text-xs font-semibold text-slate-700">Incoming Client Reply</div>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             <input
               value={replyInput.from_email}
@@ -969,27 +1106,42 @@ export default function GuidedWorkflowClient(props: {
           />
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={generateReply} disabled={!!busy} className="rounded-xl bg-slate-900 px-4 py-2 text-sm text-white">
-              Generate Response
+              Analyze Reply
             </button>
             <button type="button" onClick={sendReply} disabled={!!busy || !replyDraft?.response_body} className="rounded-xl border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 hover:bg-slate-50">
-              Send Response
+              Send Suggested Response
             </button>
           </div>
         </div>
 
         {replyDraft?.response_body && (
-          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="text-xs font-semibold text-slate-800">{String(replyDraft.response_subject || "Draft reply")}</div>
-              <div className="text-xs text-slate-500">{String(replyDraft.signal || "—")} • {String(replyDraft.confidence ?? "—")}/100</div>
+          <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <div className="text-xs font-semibold text-slate-700">Signal Detected</div>
+            <div className="mt-2 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Signal</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{String(replyDraft.signal || "—")}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Confidence</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{String(replyDraft.confidence ?? "—")}%</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Recommended next action</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{String(replyDraft.recommended_action || "—")}</div>
+              </div>
             </div>
-            {replyDraft.signal_reason && <div className="mt-2 text-xs text-slate-700">{String(replyDraft.signal_reason)}</div>}
-            {replyDraft.recommended_action && (
-              <div className="mt-2 text-xs text-slate-700">
-                <span className="font-semibold text-slate-800">Recommended action:</span> {String(replyDraft.recommended_action)}
+            {replyDraft.signal_reason && (
+              <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-semibold text-slate-700">Reason</div>
+                <div className="mt-1 text-xs text-slate-700">{String(replyDraft.signal_reason)}</div>
               </div>
             )}
-            <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{String(replyDraft.response_body)}</pre>
+            <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+              <div className="text-xs font-semibold text-slate-700">Suggested Response</div>
+              <div className="mt-1 text-xs font-semibold text-slate-800">{String(replyDraft.response_subject || "Re:")}</div>
+              <pre className="mt-2 whitespace-pre-wrap text-sm text-slate-800">{String(replyDraft.response_body)}</pre>
+            </div>
           </div>
         )}
       </div>

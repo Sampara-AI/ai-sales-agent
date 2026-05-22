@@ -17,8 +17,8 @@ const nunitoMono = Nunito_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "Tuple AI Sales Agent",
-  description: "Deploy a $0/month AI sales agent with free-tier APIs",
+  title: "VPersonalize AI Sales Agent",
+  description: "AI SDR workflow for personalized outreach and reply intelligence",
 };
 
 export default function RootLayout({
@@ -26,7 +26,7 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const brandUrl = process.env.NEXT_PUBLIC_BRAND_URL || "https://www.tupleai.co.in";
+  const brandUrl = process.env.NEXT_PUBLIC_BRAND_URL || "https://www.vpersonalize.com";
   return (
     <html lang="en">
       <body className={`${nunitoSans.variable} ${nunitoMono.variable} antialiased bg-[#0a0a0f] text-zinc-50`}>
@@ -34,8 +34,8 @@ export default function RootLayout({
           <header className="z-20 w-full border-b border-white/10 bg-white/5 backdrop-blur-xl">
             <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
               <Link href="/" className="flex items-center gap-3">
-                <Image src="/logo.png" alt="Tuple AI" width={32} height={32} className="h-8 w-8 rounded-lg border border-white/10 object-cover" />
-                <span className="text-sm font-semibold tracking-wide">Tuple AI</span>
+                <Image src="/logo.png" alt="VPersonalize" width={32} height={32} className="h-8 w-8 rounded-lg border border-white/10 object-cover" />
+                <span className="text-sm font-semibold tracking-wide">VPersonalize</span>
               </Link>
               <div className="flex items-center gap-4">
                 <Link href="/assess/enterprise" className="text-xs text-zinc-300">Assess</Link>
@@ -51,8 +51,12 @@ export default function RootLayout({
           </main>
           <footer className="mt-12 border-t border-white/10 bg-white/5 py-6 backdrop-blur-xl">
             <div className="mx-auto max-w-7xl px-6 text-xs text-zinc-300">
-              <div><a href={brandUrl} className="text-zinc-300 underline">Powered by Tuple AI</a></div>
-              <div className="mt-1">© {new Date().getFullYear()} Tuple AI. All rights reserved.</div>
+              <div>
+                <a href={brandUrl} className="text-zinc-300 underline">
+                  Powered by VPersonalize
+                </a>
+              </div>
+              <div className="mt-1">© {new Date().getFullYear()} VPersonalize. All rights reserved.</div>
             </div>
           </footer>
         </div>
