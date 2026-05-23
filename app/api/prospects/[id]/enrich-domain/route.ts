@@ -53,6 +53,16 @@ function normalizeDomain(domain: string) {
     .toLowerCase();
 }
 
+function sanitizeEnterpriseCopy(text: string) {
+  const t = String(text || "");
+  return t
+    .replace(/sampara ai/gi, "VPersonalize")
+    .replace(/not enough information( is| was)? available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/not enough information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/limited information available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
+    .replace(/insufficient information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.");
+}
+
 function toHttpsUrl(domain: string, path = "") {
   const d = normalizeDomain(domain);
   if (!d) return "";
@@ -70,6 +80,64 @@ function safeJsonExtract(text: string) {
   } catch {
     return null;
   }
+}
+
+function cleanMarkdown(input: string) {
+  const lines = String(input || "").split(/\r?\n/);
+  const cleaned: string[] = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    const lower = line.toLowerCase();
+    if (
+      lower.includes("cookie") ||
+      lower.includes("privacy") ||
+      lower.includes("terms") ||
+      lower.includes("all rights reserved") ||
+      lower.includes("©") ||
+      lower.includes("subscribe") ||
+      lower.includes("sign up") ||
+      lower.includes("log in") ||
+      lower.includes("login") ||
+      lower.includes("contact us") ||
+      lower.includes("careers") ||
+      lower.includes("instagram") ||
+      lower.includes("linkedin") ||
+      lower.includes("facebook") ||
+      lower.includes("twitter") ||
+      lower.includes("x.com")
+    ) {
+      continue;
+    }
+    if (/^\[(home|about|products|pricing|blog|contact)\]\(/i.test(line)) continue;
+    cleaned.push(raw);
+    if (cleaned.join("\n").length > 9000) break;
+  }
+  return cleaned.join("\n").trim();
+}
+
+async function firecrawlScrapeMarkdown(url: string, apiKey: string) {
+  const res = await fetch("https://api.firecrawl.dev/v1/scrape", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      url,
+      formats: ["markdown"],
+      onlyMainContent: true,
+    }),
+  });
+  const j = await res.json().catch(() => ({} as any));
+  if (!res.ok || j?.success === false) {
+    const msg = String(j?.error || j?.message || "Firecrawl scrape failed");
+    throw new Error(msg);
+  }
+  const md = String(j?.data?.markdown || j?.markdown || "").trim();
+  const title = String(j?.data?.metadata?.title || j?.data?.title || "").trim();
+  const description = String(j?.data?.metadata?.description || j?.data?.metadata?.metaDescription || "").trim();
+  return { markdown: md, title, description };
 }
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -131,10 +199,18 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       "/team",
     ];
     const urls = candidatePaths.map((p) => toHttpsUrl(domain, p)).filter(Boolean);
+    const firecrawlKey = String(process.env.FIRECRAWL_API_KEY || "").trim();
     const sources: Array<{ url: string; title: string; description: string; excerpt: string; content_type: string }> = [];
     for (const url of urls) {
       if (sources.length >= 4) break;
       try {
+        if (firecrawlKey) {
+          const fc = await firecrawlScrapeMarkdown(url, firecrawlKey);
+          const excerpt = cleanMarkdown(fc.markdown).slice(0, 1800);
+          if (!excerpt) continue;
+          sources.push({ url, title: fc.title, description: fc.description, excerpt, content_type: "text/markdown" });
+          continue;
+        }
         const res = await fetchWithTimeout(url, 6500);
         if (!res.ok) continue;
         const ct = res.headers.get("content-type") || "";
@@ -143,7 +219,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         if (!html) continue;
         const title = extractTitle(html);
         const description = extractMetaDescription(html);
-        const excerpt = stripTags(html).slice(0, 1200);
+        const excerpt = stripTags(html).slice(0, 1800);
         sources.push({ url, title, description, excerpt, content_type: ct });
       } catch {}
     }
@@ -212,12 +288,12 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const intelLines: string[] = [];
     intelLines.push("Matchmaking Brief (vPersonalize ↔ Prospect)");
     intelLines.push(`Domain: ${domain}`);
-    if (summary) intelLines.push(`Summary: ${summary}`);
+    if (summary) intelLines.push(`Summary: ${sanitizeEnterpriseCopy(summary)}`);
     if (sourcesUsed.length) {
       intelLines.push("Sources:");
       for (const s of sourcesUsed.slice(0, 6)) {
         const url = String(s?.url || "").trim();
-        const note = String(s?.note || "").trim();
+        const note = sanitizeEnterpriseCopy(String(s?.note || "").trim());
         if (url) intelLines.push(`- ${url}${note ? ` — ${note}` : ""}`);
       }
     } else if (sources.length) {
@@ -229,31 +305,34 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     }
     if (keyPoints.length) {
       intelLines.push("Key points:");
-      for (const k of keyPoints.slice(0, 10)) intelLines.push(`- ${String(k).trim()}`);
+      for (const k of keyPoints.slice(0, 10)) intelLines.push(`- ${sanitizeEnterpriseCopy(String(k).trim())}`);
     }
     if (signals.length) {
       intelLines.push("Operational signals:");
-      for (const s of signals.slice(0, 10)) intelLines.push(`- ${String(s).trim()}`);
+      for (const s of signals.slice(0, 10)) intelLines.push(`- ${sanitizeEnterpriseCopy(String(s).trim())}`);
     }
     if (friction.length) {
       intelLines.push("Likely operational friction:");
-      for (const f of friction.slice(0, 10)) intelLines.push(`- ${String(f).trim()}`);
+      for (const f of friction.slice(0, 10)) intelLines.push(`- ${sanitizeEnterpriseCopy(String(f).trim())}`);
     }
     if (mmTarget || mmAngle || mmHook) {
       intelLines.push("Match angle:");
-      if (mmTarget) intelLines.push(`- Target fit: ${mmTarget}`);
-      if (mmAngle) intelLines.push(`- Angle: ${mmAngle}`);
-      if (mmHook) intelLines.push(`- Core hook: ${mmHook}`);
+      if (mmTarget) intelLines.push(`- Target fit: ${sanitizeEnterpriseCopy(mmTarget)}`);
+      if (mmAngle) intelLines.push(`- Angle: ${sanitizeEnterpriseCopy(mmAngle)}`);
+      if (mmHook) intelLines.push(`- Core hook: ${sanitizeEnterpriseCopy(mmHook)}`);
     }
     if (caveats.length) {
       intelLines.push("Caveats:");
-      for (const c of caveats.slice(0, 6)) intelLines.push(`- ${String(c).trim()}`);
+      for (const c of caveats.slice(0, 6)) intelLines.push(`- ${sanitizeEnterpriseCopy(String(c).trim())}`);
     }
     intelLines.push(`Confidence: ${confidence}%`);
 
     const intelBlock = intelLines.join("\n");
     const nextRecent = [String(p.recent_activity || "").trim(), intelBlock].filter(Boolean).join("\n\n");
     await admin.from("prospects").update({ recent_activity: nextRecent, status: "researched" }).eq("id", prospectId);
+    try {
+      await admin.from("prospects").update({ enrichment_json: parsed }).eq("id", prospectId);
+    } catch {}
 
     return NextResponse.json({
       success: true,
