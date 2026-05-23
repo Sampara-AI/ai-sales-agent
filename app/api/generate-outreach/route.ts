@@ -40,6 +40,58 @@ function sanitizeEnterpriseCopy(text: string) {
     .replace(/insufficient information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.");
 }
 
+function resolveMatchmakingAngle(input: { company?: string; domain?: string }) {
+  const rawCompany = String(input.company || "").trim();
+  const rawDomain = String(input.domain || "").trim().toLowerCase();
+  const key = `${rawCompany} ${rawDomain}`.toLowerCase();
+  const isNike = /\bnike\b/.test(key) || rawDomain.includes("nike.");
+  const isMizuno = /\bmizuno\b/.test(key) || rawDomain.includes("mizuno.");
+  const isSquadStudio = /\bsquadstudio\b/.test(key) || rawDomain.includes("squadstudio");
+  const isNewBalance = /new\s*balance/.test(key) || rawDomain.includes("newbalance");
+
+  if (isNike) {
+    return {
+      registry_target: "Nike",
+      pain_points: ["scale friction", "global manufacturing consistency", "sustainability pressure", "digital-to-factory translation complexity"],
+      match_angle: "Enterprise mass customization infrastructure",
+      core_hook:
+        "Patented workflow connecting 3D customization directly to production-ready manufacturing outputs while maximizing nesting efficiency and reducing waste.",
+    };
+  }
+  if (isMizuno) {
+    return {
+      registry_target: "Mizuno",
+      pain_points: ["high labor overhead", "rapid teamwear scaling", "turnaround delays", "operational complexity"],
+      match_angle: "Reducing pre-production bottlenecks",
+      core_hook: "Roster automation: Excel upload directly generates graded production outputs with names/numbers automatically.",
+    };
+  }
+  if (isSquadStudio) {
+    return {
+      registry_target: "SquadStudio",
+      pain_points: ["manual artwork prep", "disconnected workflows", "plugin dependency", "fragmented production flow"],
+      match_angle: "Industrial-grade end-to-end production workflow",
+      core_hook: "Automated DXF/AI/SVG pattern workflow eliminating large portions of manual artwork preparation.",
+    };
+  }
+  if (isNewBalance) {
+    return {
+      registry_target: "New Balance",
+      pain_points: ["inventory overhead", "made-to-order complexity", "multi-SKU management", "custom line scaling"],
+      match_angle: "Agile on-demand production",
+      core_hook: "Made-to-order pipeline generating production-ready outputs directly from consumer checkout.",
+    };
+  }
+  return {
+    registry_target: "",
+    pain_points: [],
+    match_angle:
+      "Operational matchmaking for mass customization: connect digital customization directly to production-ready manufacturing files (DXF/AI/SVG), automate grading/pattern generation, reduce pre-production overhead, and improve factory throughput.",
+    core_hook:
+      "vPersonalize connects customer customization directly to production-ready manufacturing outputs (not just mockups), helping reduce manual pre-production work and factory friction.",
+  };
+}
+
 function extractMissingColumnName(message: string, table: string) {
   const msg = String(message || "");
   const m =
@@ -58,7 +110,10 @@ async function loadAiSettings(adminDb: any) {
   const fallback = {
     brand_name: String(process.env.NEXT_PUBLIC_BRAND_NAME || process.env.DEFAULT_FROM_NAME || "VPersonalize").trim(),
     brand_website: String(process.env.EMAIL_BRAND_URL || process.env.NEXT_PUBLIC_BRAND_URL || "https://www.vpersonalize.com").trim(),
-    brand_one_liner: String(process.env.NEXT_PUBLIC_BRAND_ONE_LINER || "Custom teamwear & merch made easy for clubs, teams, and brands.").trim(),
+    brand_one_liner: String(
+      process.env.NEXT_PUBLIC_BRAND_ONE_LINER ||
+        "Enterprise manufacturing intelligence platform connecting digital customization directly to production-ready manufacturing files.",
+    ).trim(),
     tone: "Exciting and confident, not pushy. Value-first. One clear CTA.",
     cta_text: String(process.env.EMAIL_FOOTER_LINK_TEXT || "Book a quick 15-minute chat").trim(),
     cta_url: String(process.env.EMAIL_FOOTER_LINK_URL || "https://cal.com/vpersonalize/intro").trim(),
@@ -167,6 +222,8 @@ export async function POST(req: NextRequest) {
     company = cleanedCompany || fallbackCompany || "your team";
     name = cleanedName || company || "there";
 
+    const matchmaking = resolveMatchmakingAngle({ company, domain: prospectDomain });
+
     const groq = new Groq({ apiKey });
     const openaiKey = String(process.env.OPENAI_API_KEY || "").trim();
     let knowledgeContext = "";
@@ -201,15 +258,26 @@ export async function POST(req: NextRequest) {
     const banned = Array.isArray(aiSettings.banned_phrases) ? aiSettings.banned_phrases : [];
     const qualificationLine = String((aiSettings as any)?.qualification_line || "").trim();
     const system =
-      `You write personalized B2B cold emails on behalf of ${aiSettings.brand_name}.\n\n` +
+      `You write highly personalized, commercially intelligent outreach emails on behalf of ${aiSettings.brand_name} (vPersonalize).\n\n` +
+      `vPersonalize positioning:\n` +
+      `- Enterprise manufacturing intelligence platform\n` +
+      `- Connects digital customization directly to production-ready manufacturing files (DXF/AI/SVG), not just mockups\n` +
+      `- Automates grading and pattern generation, reduces manual pre-production work, reduces factory friction, supports made-to-order workflows\n\n` +
       `Brand context:\n- Brand: ${aiSettings.brand_name}\n- Website: ${aiSettings.brand_website}\n- One-liner: ${aiSettings.brand_one_liner}\n\n` +
+      `Matchmaking registry (deterministic):\n` +
+      (matchmaking.registry_target
+        ? `- Target match: ${matchmaking.registry_target}\n- Match angle: ${matchmaking.match_angle}\n- Core hook: ${matchmaking.core_hook}\n`
+        : `- Match angle: ${matchmaking.match_angle}\n- Core hook: ${matchmaking.core_hook}\n`) +
       `Tone:\n${aiSettings.tone}\n\n` +
       "Rules:\n" +
-      "- Use only facts from recent_activity (including Domain intel) and knowledge_context\n" +
-      "- If evidence is weak, ask 1 short clarifying question instead of guessing\n" +
-      "- Keep it 80-120 words\n" +
-      "- 1 clear CTA (use the CTA provided)\n" +
-      (qualificationLine ? `- Include this polite qualifier line once: "${qualificationLine}"\n` : "") +
+      "- Start with a sharp operational observation derived from recent_activity (sources, key points, signals)\n" +
+      "- Identify likely friction/pain (commercially reasonable inference)\n" +
+      "- Connect the specific vPersonalize capability that matches that friction (matchmaking)\n" +
+      "- Use only facts from recent_activity (including enrichment sources) and knowledge_context as factual basis; inference is allowed but fabrication is prohibited\n" +
+      "- Avoid stalker-ish phrasing; do not claim private/internal facts\n" +
+      "- Keep it 90-140 words\n" +
+      "- 1 clear CTA framed consultatively (not 'book a call'); ask what they optimize for (turnaround / flexibility / inventory / automation / consistency)\n" +
+      (qualificationLine ? `- Include this polite qualifier line once when relevant: "${qualificationLine}"\n` : "") +
       "- No emojis, no markdown, no exclamation points\n" +
       "- Avoid hype/buzzwords\n" +
       `- Do not mention these phrases: ${banned.map((x: string) => `"${x}"`).join(", ")}\n\n` +

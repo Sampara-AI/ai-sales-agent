@@ -53,6 +53,25 @@ function normalizeDomain(domain: string) {
     .toLowerCase();
 }
 
+function toHttpsUrl(domain: string, path = "") {
+  const d = normalizeDomain(domain);
+  if (!d) return "";
+  const p = String(path || "").trim();
+  if (!p) return `https://${d}`;
+  const nextPath = p.startsWith("/") ? p : `/${p}`;
+  return `https://${d}${nextPath}`;
+}
+
+function safeJsonExtract(text: string) {
+  const m = String(text || "").match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try {
+    return JSON.parse(m[0]);
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const prospectId = String((await params)?.id || "").trim();
   if (!prospectId) return NextResponse.json({ success: false, error: "Invalid prospect id" }, { status: 400 });
@@ -98,37 +117,73 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const domain = normalizeDomain(String(p.domain || "")) || deriveDomainFromEmail(p.email);
     if (!domain) return NextResponse.json({ success: false, error: "Prospect missing email domain" }, { status: 400 });
 
-    let html = "";
-    const candidates = [`https://${domain}`, `http://${domain}`];
-    for (const u of candidates) {
+    if (!groqKey) return NextResponse.json({ success: false, error: "Missing GROQ_API_KEY" }, { status: 500 });
+    const groq = new Groq({ apiKey: groqKey });
+
+    const candidatePaths = [
+      "",
+      "/about",
+      "/products",
+      "/product",
+      "/solutions",
+      "/manufacturing",
+      "/sustainability",
+      "/team",
+    ];
+    const urls = candidatePaths.map((p) => toHttpsUrl(domain, p)).filter(Boolean);
+    const sources: Array<{ url: string; title: string; description: string; excerpt: string; content_type: string }> = [];
+    for (const url of urls) {
+      if (sources.length >= 4) break;
       try {
-        const res = await fetchWithTimeout(u, 8000);
+        const res = await fetchWithTimeout(url, 6500);
         if (!res.ok) continue;
         const ct = res.headers.get("content-type") || "";
         if (!/text\/html|application\/xhtml\+xml/i.test(ct)) continue;
-        html = await res.text();
-        if (html) break;
+        const html = await res.text();
+        if (!html) continue;
+        const title = extractTitle(html);
+        const description = extractMetaDescription(html);
+        const excerpt = stripTags(html).slice(0, 1200);
+        sources.push({ url, title, description, excerpt, content_type: ct });
       } catch {}
     }
 
-    const title = html ? extractTitle(html) : "";
-    const description = html ? extractMetaDescription(html) : "";
-    const pageText = html ? stripTags(html).slice(0, 4000) : "";
-
-    if (!title && !description && !pageText) {
-      const intel = `Domain: ${domain}\nNote: No accessible HTML content fetched (blocked, non-HTML, or timeout).`;
-      const nextRecent = [String(p.recent_activity || "").trim(), `Domain intel:\n${intel}`].filter(Boolean).join("\n\n");
-      await admin.from("prospects").update({ recent_activity: nextRecent, status: "researched" }).eq("id", prospectId);
-      return NextResponse.json({ success: true, prospect_id: prospectId, domain, title: "", description: "", company_summary: "", personalization_hooks: [] });
-    }
-
-    if (!groqKey) return NextResponse.json({ success: false, error: "Missing GROQ_API_KEY" }, { status: 500 });
-    const groq = new Groq({ apiKey: groqKey });
     const system =
-      "You are a GTM research assistant. Use only provided domain evidence (title, meta description, page text). If evidence is weak, say so. Return JSON only: " +
-      '{ company_summary: string, personalization_hooks: string[] }. ' +
-      "company_summary must be 2-3 sentences max. personalization_hooks must be 3-5 short bullets. Do not invent facts.";
-    const user = JSON.stringify({ domain, title, description, page_text: pageText });
+      "You are an enterprise-grade manufacturing and GTM research assistant for vPersonalize.\n" +
+      "You will receive multiple web sources (URLs + extracted excerpts). Use them to synthesize operationally-relevant intelligence.\n" +
+      "Inference is allowed. Fabrication is prohibited.\n\n" +
+      "Return JSON only with this schema:\n" +
+      "{\n" +
+      '  company_summary: string,\n' +
+      '  sources_used: { url: string, note: string }[],\n' +
+      '  key_points: string[],\n' +
+      '  operational_signals: string[],\n' +
+      '  inferred_friction: string[],\n' +
+      '  matchmaking: { target: string, pain_points: string[], match_angle: string, core_hook: string },\n' +
+      '  caveats: string[],\n' +
+      "  confidence: number\n" +
+      "}\n\n" +
+      "Rules:\n" +
+      "- confidence: 0-100\n" +
+      "- key_points: 4-8 bullets (facts/observations from sources)\n" +
+      "- operational_signals: 4-8 bullets (signals like scale, SKU complexity, customization workflows, sustainability pressure)\n" +
+      "- inferred_friction: 3-6 bullets (commercially reasonable inferences, not invented facts)\n" +
+      '- caveats: if sources are thin/unavailable, include: "Additional enrichment signals unavailable. Using imported context + domain intelligence."\n' +
+      "- NEVER use the phrase 'not enough information'.\n" +
+      "- NEVER mention Sampara AI.\n\n" +
+      "Deterministic matchmaking registry:\n" +
+      "- Nike: Enterprise mass customization infrastructure; hook: patented workflow connecting 3D customization directly to production-ready outputs while maximizing nesting efficiency and reducing waste.\n" +
+      "- Mizuno: Reducing pre-production bottlenecks; hook: roster automation where Excel upload generates graded production outputs with names/numbers automatically.\n" +
+      "- SquadStudio: Industrial-grade end-to-end production workflow; hook: automated DXF/AI/SVG pattern workflow eliminating large portions of manual artwork preparation.\n" +
+      "- New Balance: Agile on-demand production; hook: made-to-order pipeline generating production-ready outputs directly from consumer checkout.\n" +
+      "If no registry match, infer closest angle for vPersonalize: 3D visualization + automated grading + pattern generation + production-ready DXF/AI/SVG outputs + manufacturing automation.\n";
+
+    const user = JSON.stringify({
+      prospect_domain: domain,
+      prospect_company_hint: String(p.company || "").trim(),
+      sources,
+    });
+
     const completion = await groq.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       messages: [
@@ -136,27 +191,82 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
         { role: "user", content: user },
       ],
       temperature: 0,
-      max_tokens: 600,
+      max_tokens: 900,
     });
     const content = completion.choices?.[0]?.message?.content ?? "";
-    const match = content.match(/\{[\s\S]*\}/);
-    if (!match) return NextResponse.json({ success: false, error: "Model returned invalid JSON" }, { status: 502 });
-    const parsed = JSON.parse(match[0]) as { company_summary?: string; personalization_hooks?: string[] };
+    const parsed = safeJsonExtract(content) as any;
+    if (!parsed) return NextResponse.json({ success: false, error: "Model returned invalid JSON" }, { status: 502 });
 
     const summary = String(parsed.company_summary || "").trim();
-    const hooks = Array.isArray(parsed.personalization_hooks) ? parsed.personalization_hooks.map((x) => String(x).trim()).filter(Boolean).slice(0, 5) : [];
-    const intel = [
-      `Domain: ${domain}`,
-      title ? `Title: ${title}` : "",
-      description ? `Description: ${description}` : "",
-      summary ? `Summary: ${summary}` : "",
-      hooks.length ? `Hooks:\n- ${hooks.join("\n- ")}` : "",
-    ].filter(Boolean).join("\n");
+    const sourcesUsed = Array.isArray(parsed.sources_used) ? parsed.sources_used : [];
+    const keyPoints = Array.isArray(parsed.key_points) ? parsed.key_points : [];
+    const signals = Array.isArray(parsed.operational_signals) ? parsed.operational_signals : [];
+    const friction = Array.isArray(parsed.inferred_friction) ? parsed.inferred_friction : [];
+    const mm = parsed.matchmaking && typeof parsed.matchmaking === "object" ? parsed.matchmaking : {};
+    const mmTarget = String(mm.target || "").trim();
+    const mmAngle = String(mm.match_angle || "").trim();
+    const mmHook = String(mm.core_hook || "").trim();
+    const caveats = Array.isArray(parsed.caveats) ? parsed.caveats : [];
+    const confidence = Math.max(0, Math.min(100, Number(parsed.confidence ?? 0)));
 
-    const nextRecent = [String(p.recent_activity || "").trim(), `Domain intel:\n${intel}`].filter(Boolean).join("\n\n");
+    const intelLines: string[] = [];
+    intelLines.push("Matchmaking Brief (vPersonalize ↔ Prospect)");
+    intelLines.push(`Domain: ${domain}`);
+    if (summary) intelLines.push(`Summary: ${summary}`);
+    if (sourcesUsed.length) {
+      intelLines.push("Sources:");
+      for (const s of sourcesUsed.slice(0, 6)) {
+        const url = String(s?.url || "").trim();
+        const note = String(s?.note || "").trim();
+        if (url) intelLines.push(`- ${url}${note ? ` — ${note}` : ""}`);
+      }
+    } else if (sources.length) {
+      intelLines.push("Sources:");
+      for (const s of sources.slice(0, 4)) intelLines.push(`- ${String(s.url)}${s.title ? ` — ${s.title}` : ""}`);
+    } else {
+      intelLines.push("Sources:");
+      intelLines.push("- Additional enrichment signals unavailable. Using imported context + domain intelligence.");
+    }
+    if (keyPoints.length) {
+      intelLines.push("Key points:");
+      for (const k of keyPoints.slice(0, 10)) intelLines.push(`- ${String(k).trim()}`);
+    }
+    if (signals.length) {
+      intelLines.push("Operational signals:");
+      for (const s of signals.slice(0, 10)) intelLines.push(`- ${String(s).trim()}`);
+    }
+    if (friction.length) {
+      intelLines.push("Likely operational friction:");
+      for (const f of friction.slice(0, 10)) intelLines.push(`- ${String(f).trim()}`);
+    }
+    if (mmTarget || mmAngle || mmHook) {
+      intelLines.push("Match angle:");
+      if (mmTarget) intelLines.push(`- Target fit: ${mmTarget}`);
+      if (mmAngle) intelLines.push(`- Angle: ${mmAngle}`);
+      if (mmHook) intelLines.push(`- Core hook: ${mmHook}`);
+    }
+    if (caveats.length) {
+      intelLines.push("Caveats:");
+      for (const c of caveats.slice(0, 6)) intelLines.push(`- ${String(c).trim()}`);
+    }
+    intelLines.push(`Confidence: ${confidence}%`);
+
+    const intelBlock = intelLines.join("\n");
+    const nextRecent = [String(p.recent_activity || "").trim(), intelBlock].filter(Boolean).join("\n\n");
     await admin.from("prospects").update({ recent_activity: nextRecent, status: "researched" }).eq("id", prospectId);
 
-    return NextResponse.json({ success: true, prospect_id: prospectId, domain, title, description, company_summary: summary, personalization_hooks: hooks });
+    return NextResponse.json({
+      success: true,
+      prospect_id: prospectId,
+      domain,
+      company_summary: summary,
+      sources_used: sourcesUsed,
+      key_points: keyPoints,
+      operational_signals: signals,
+      inferred_friction: friction,
+      matchmaking: { target: mmTarget, match_angle: mmAngle, core_hook: mmHook },
+      confidence,
+    });
   } catch (err: any) {
     const code = err?.status ?? 500;
     const message = typeof err?.message === "string" ? err.message : "Domain enrichment failed";

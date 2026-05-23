@@ -45,6 +45,27 @@ function sanitizeEnterpriseCopy(text: string) {
     .replace(/insufficient information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.");
 }
 
+function extractSection(text: string, header: string) {
+  const t = String(text || "");
+  const lines = t.split(/\r?\n/);
+  const start = lines.findIndex((l) => l.trim().toLowerCase() === header.toLowerCase());
+  if (start === -1) return [];
+  const out: string[] = [];
+  for (let i = start + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (/^[A-Za-z].*:\s*$/.test(line.trim())) break;
+    const m = line.trim().match(/^- (.+)$/);
+    if (m?.[1]) out.push(m[1].trim());
+  }
+  return out;
+}
+
+function extractInlineValue(text: string, prefix: string) {
+  const t = String(text || "");
+  const m = t.match(new RegExp(`^${prefix.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")}\\s*(.+)$`, "im"));
+  return m?.[1] ? String(m[1]).trim() : "";
+}
+
 function Spinner() {
   return <span className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-slate-300 border-t-slate-900" />;
 }
@@ -998,7 +1019,13 @@ export default function GuidedWorkflowClient(props: {
               const pv = getDraftPreview(reviewProspectId);
               const subject = pv.subject || "Draft email";
               const body = pv.body || "";
-              const evidence = sanitizeEnterpriseCopy(String(p?.recent_activity || "").trim());
+              const rawEvidence = sanitizeEnterpriseCopy(String(p?.recent_activity || "").trim());
+              const sources = extractSection(rawEvidence, "Sources:");
+              const keyPoints = extractSection(rawEvidence, "Key points:");
+              const signals = extractSection(rawEvidence, "Operational signals:");
+              const friction = extractSection(rawEvidence, "Likely operational friction:");
+              const matchAngle = extractSection(rawEvidence, "Match angle:");
+              const confidence = extractInlineValue(rawEvidence, "Confidence:");
               const grounding = pv.knowledgePreview;
               const groundingStatus = pv.knowledgeUsed ? "KB used" : "KB not used";
               return (
@@ -1042,13 +1069,35 @@ export default function GuidedWorkflowClient(props: {
                   <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
                     <div className="rounded-xl border border-slate-200 bg-white p-4">
                       <div className="text-xs font-semibold text-slate-700">Personalization evidence</div>
-                      <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{evidence || "Imported context + domain intelligence"}</div>
+                      <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">
+                        {keyPoints.length
+                          ? `Key points:\n- ${keyPoints.join("\n- ")}`
+                          : rawEvidence
+                            ? rawEvidence
+                            : "Imported context + domain intelligence"}
+                      </div>
+                      {sources.length ? (
+                        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">
+                          <div className="font-semibold text-slate-800">Sources</div>
+                          <div className="mt-1 whitespace-pre-wrap">{`- ${sources.join("\n- ")}`}</div>
+                        </div>
+                      ) : null}
                     </div>
                     <div className="rounded-xl border border-slate-200 bg-white p-4">
                       <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="text-xs font-semibold text-slate-700">KB grounding</div>
+                        <div className="text-xs font-semibold text-slate-700">Signals + grounding</div>
                         <div className="text-xs text-slate-500">{groundingStatus}</div>
                       </div>
+                      {confidence ? <div className="mt-2 text-xs text-slate-700">Enrichment confidence: {confidence}</div> : null}
+                      {signals.length ? (
+                        <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{`Operational signals:\n- ${signals.join("\n- ")}`}</div>
+                      ) : null}
+                      {friction.length ? (
+                        <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{`Likely friction:\n- ${friction.join("\n- ")}`}</div>
+                      ) : null}
+                      {matchAngle.length ? (
+                        <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{`Match angle:\n- ${matchAngle.join("\n- ")}`}</div>
+                      ) : null}
                       {pv.reasoning && <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{pv.reasoning}</div>}
                       {grounding && <div className="mt-2 whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{grounding}</div>}
                     </div>
