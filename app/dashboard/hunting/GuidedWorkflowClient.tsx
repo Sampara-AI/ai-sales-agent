@@ -38,6 +38,8 @@ function sanitizeEnterpriseCopy(text: string) {
   const t = String(text || "");
   return t
     .replace(/sampara ai/gi, "VPersonalize")
+    .replace(/\btuple ai\b/gi, "VPersonalize")
+    .replace(/\bmerch\b/gi, "merchandise")
     .replace(/not enough information( is| was)? available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
     .replace(/not enough information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
     .replace(/limited information available about the prospect/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
@@ -107,6 +109,8 @@ export default function GuidedWorkflowClient(props: {
         draft_subject?: string;
         draft_body?: string;
         sent_at?: string;
+        personalization_score?: number;
+        confidence_score?: number;
       }
     >
   >({});
@@ -251,7 +255,9 @@ export default function GuidedWorkflowClient(props: {
     const reasoning = sanitizeEnterpriseCopy(String(rs?.reasoning || "").trim());
     const knowledgeUsed = Boolean(rs?.knowledge_used);
     const knowledgePreview = sanitizeEnterpriseCopy(String(rs?.knowledge_preview || "").trim());
-    return { subject, body, reasoning, knowledgeUsed, knowledgePreview };
+    const personalizationScore = typeof rs?.personalization_score === "number" ? rs.personalization_score : null;
+    const confidenceScore = typeof rs?.confidence_score === "number" ? rs.confidence_score : null;
+    return { subject, body, reasoning, knowledgeUsed, knowledgePreview, personalizationScore, confidenceScore };
   };
 
   const openFirstDraft = () => {
@@ -378,6 +384,8 @@ export default function GuidedWorkflowClient(props: {
             reasoning: sanitizeEnterpriseCopy(String(j?.reasoning || "").trim()),
             knowledge_used: Boolean(j?.knowledge_used),
             knowledge_preview: sanitizeEnterpriseCopy(String(j?.knowledge_preview || "").trim()),
+            personalization_score: typeof j?.personalization_score === "number" ? j.personalization_score : Number(j?.personalization_score ?? 0),
+            confidence_score: typeof j?.confidence_score === "number" ? j.confidence_score : Number(j?.confidence_score ?? 0),
           },
         }));
       } catch (e: any) {
@@ -921,7 +929,10 @@ export default function GuidedWorkflowClient(props: {
                 const rationale = sanitizeEnterpriseCopy(String(p.recent_activity || "").trim());
 
                 return (
-                  <tr key={pid} className="border-t border-slate-100">
+                  <tr
+                    key={pid}
+                    className={`border-t border-slate-100 ${reviewProspectId === pid ? "bg-amber-50" : ""}`}
+                  >
                     <td className="p-2">
                       {step === "approve" || step === "send" ? (
                         <input
@@ -1028,6 +1039,8 @@ export default function GuidedWorkflowClient(props: {
               const confidence = extractInlineValue(rawEvidence, "Confidence:");
               const grounding = pv.knowledgePreview;
               const groundingStatus = pv.knowledgeUsed ? "KB used" : "KB not used";
+              const draftConf = pv.confidenceScore != null && Number.isFinite(pv.confidenceScore) ? Math.max(0, Math.min(100, pv.confidenceScore)) : null;
+              const draftPers = pv.personalizationScore != null && Number.isFinite(pv.personalizationScore) ? Math.max(0, Math.min(100, pv.personalizationScore)) : null;
               return (
                 <div>
                   <div className="flex flex-wrap items-start justify-between gap-2">
@@ -1089,6 +1102,11 @@ export default function GuidedWorkflowClient(props: {
                         <div className="text-xs text-slate-500">{groundingStatus}</div>
                       </div>
                       {confidence ? <div className="mt-2 text-xs text-slate-700">Enrichment confidence: {confidence}</div> : null}
+                      {draftConf != null || draftPers != null ? (
+                        <div className="mt-2 text-xs text-slate-700">
+                          Draft confidence summary: {draftConf != null ? `${draftConf}%` : "—"} • Personalization: {draftPers != null ? `${draftPers}%` : "—"}
+                        </div>
+                      ) : null}
                       {signals.length ? (
                         <div className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{`Operational signals:\n- ${signals.join("\n- ")}`}</div>
                       ) : null}
@@ -1178,6 +1196,34 @@ export default function GuidedWorkflowClient(props: {
               <div className="rounded-xl border border-slate-200 bg-white p-3">
                 <div className="text-xs text-slate-500">Recommended next action</div>
                 <div className="mt-1 text-sm font-semibold text-slate-900">{String(replyDraft.recommended_action || "—")}</div>
+              </div>
+            </div>
+            <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Buying intent</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{String(replyDraft.buying_intent || "—")}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Urgency</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{String(replyDraft.urgency || "—")}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Technical depth</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{String(replyDraft.technical_depth || "—")}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Pricing sensitivity</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{String(replyDraft.pricing_sensitivity || "—")}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Integration complexity</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{String(replyDraft.integration_complexity || "—")}</div>
+              </div>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs text-slate-500">Objections</div>
+                <div className="mt-1 text-xs text-slate-700">
+                  {Array.isArray(replyDraft.objections) && replyDraft.objections.length ? replyDraft.objections.join(", ") : "—"}
+                </div>
               </div>
             </div>
             {replyDraft.signal_reason && (

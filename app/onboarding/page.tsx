@@ -88,7 +88,7 @@ export default function OnboardingPage() {
         <div className="rounded-3xl border border-white/20 bg-white/10 p-6 backdrop-blur-xl">
           {step === 1 && (
             <div>
-              <div className="text-xl font-semibold">Welcome to Tuple AI! Let's get you set up.</div>
+              <div className="text-xl font-semibold">Welcome to VPersonalize! Let's get you set up.</div>
               <div className="mt-4 space-y-3">
                 <input value={company} onChange={async (e) => { setCompany(e.target.value); await persist({ company: e.target.value }); }} placeholder="Company name" className="w-full rounded-xl border border-white/20 bg-white/10 p-3 text-sm" />
                 <select value={role} onChange={async (e) => { setRole(e.target.value); await persist({ role: e.target.value }); }} className="w-full rounded-xl border border-white/20 bg-white/10 p-3 text-sm">
@@ -107,7 +107,7 @@ export default function OnboardingPage() {
               <div className="mt-4 space-y-2">
                 {[
                   { k: "diy", t: "Set up my own AI sales agent (Free)" },
-                  { k: "dfy", t: "Have Tuple AI set it up for me ($297)" },
+                  { k: "dfy", t: "Have VPersonalize set it up for me ($297)" },
                   { k: "explore", t: "Just exploring for now" },
                 ].map((opt) => (
                   <label key={opt.k} className="flex items-center gap-2 text-sm">

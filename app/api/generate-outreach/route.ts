@@ -34,10 +34,21 @@ function sanitizeEnterpriseCopy(text: string) {
   const t = String(text || "");
   return t
     .replace(/sampara ai/gi, "VPersonalize")
+    .replace(/\btuple ai\b/gi, "VPersonalize")
+    .replace(/\bmerch\b/gi, "merchandise")
     .replace(/not enough information( is| was)? available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
     .replace(/not enough information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
     .replace(/limited information available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
     .replace(/insufficient information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.");
+}
+
+function cleanPromptText(input: string) {
+  const s = String(input || "");
+  const withoutCode = s.replace(/```[\s\S]*?```/g, " ");
+  const withoutLinks = withoutCode.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  const withoutHeadings = withoutLinks.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  const withoutMdBullets = withoutHeadings.replace(/^\s*[-*+]\s+/gm, "");
+  return withoutMdBullets.replace(/\s+/g, " ").trim();
 }
 
 function resolveMatchmakingAngle(input: { company?: string; domain?: string }) {
@@ -124,7 +135,7 @@ async function loadAiSettings(adminDb: any) {
     credibility_line: String(process.env.EMAIL_CREDIBILITY_LINE || "").trim(),
     temperature: 0.55,
     max_tokens: 700,
-    banned_phrases: ["Tuple AI", "6 patents", "AI Architect"],
+    banned_phrases: ["Sampara AI", "6 patents", "AI Architect"],
   };
   try {
     const res = await adminDb.from("audit_events").select("meta").eq("action", "ai_settings").order("created_at", { ascending: false }).limit(1);
@@ -248,7 +259,7 @@ export async function POST(req: NextRequest) {
             .filter(Boolean)
             .slice(0, 6);
           if (chunks.length) {
-            knowledgeContext = chunks.join("\n\n---\n\n").slice(0, 5000);
+            knowledgeContext = cleanPromptText(chunks.join("\n\n---\n\n")).slice(0, 5000);
             knowledgeUsed = true;
           }
         }
@@ -275,6 +286,8 @@ export async function POST(req: NextRequest) {
       "- Connect the specific vPersonalize capability that matches that friction (matchmaking)\n" +
       "- Use only facts from recent_activity (including enrichment sources) and knowledge_context as factual basis; inference is allowed but fabrication is prohibited\n" +
       "- Avoid stalker-ish phrasing; do not claim private/internal facts\n" +
+      "- NEVER use 'hope this email finds you well'\n" +
+      "- NEVER use the word 'merch' (use merchandise, teamwear, custom apparel)\n" +
       "- Keep it 90-140 words\n" +
       "- 1 clear CTA framed consultatively (not 'book a call'); ask what they optimize for (turnaround / flexibility / inventory / automation / consistency)\n" +
       (qualificationLine ? `- Include this polite qualifier line once when relevant: "${qualificationLine}"\n` : "") +
@@ -301,8 +314,11 @@ export async function POST(req: NextRequest) {
           { role: "system", content: system },
           { role: "user", content: user },
         ],
-        temperature: Math.max(0, Math.min(1, Number((aiSettings as any)?.temperature ?? 0.55))),
-        max_tokens: Math.max(200, Math.min(1200, Number((aiSettings as any)?.max_tokens ?? 700))),
+        temperature: 0.55,
+        top_p: 0.9,
+        max_tokens: 900,
+        presence_penalty: 0.4,
+        frequency_penalty: 0.35,
       });
       completionContent = completion.choices?.[0]?.message?.content ?? "";
       if (!banned.length) break;
@@ -367,7 +383,7 @@ export async function POST(req: NextRequest) {
         if (!requireManual && toEmail) {
           const subject = result.subject_lines?.[0] || `Quick note for ${toEmail}`;
           const fromName = String((aiSettings as any)?.sender_name || process.env.DEFAULT_FROM_NAME || "VPersonalize").trim();
-          const fromEmail = String(process.env.DEFAULT_FROM_EMAIL || "founder@tuple.ai").trim();
+          const fromEmail = String(process.env.DEFAULT_FROM_EMAIL || "founder@vpersonalize.com").trim();
           const follow1 = Math.max(1, Number(process.env.DEFAULT_FOLLOWUP_DAYS || 3));
           const nextFollow = new Date(Date.now() + follow1 * 86400000).toISOString();
           await enqueueJob(

@@ -128,8 +128,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const follow1 = Array.isArray(c.followup_days) && c.followup_days[0] ? Number(c.followup_days[0]) : 3;
     const now = Date.now();
 
-    const fromName = process.env.DEFAULT_FROM_NAME || "Tuple AI";
-    const fromEmail = process.env.DEFAULT_FROM_EMAIL || "founders@tupleai.co.in";
+    const fromName = process.env.DEFAULT_FROM_NAME || "VPersonalize";
+    const fromEmail = process.env.DEFAULT_FROM_EMAIL || "founders@vpersonalize.com";
     const jobs = ready
       .map((p, idx) => {
         const email = String(p.email || "").trim();

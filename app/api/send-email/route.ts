@@ -61,8 +61,8 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as SendBody;
     const emailRegex = /[^@\s]+@[^@\s]+\.[^@\s]+/;
-    const defaultFromEmail = process.env.DEFAULT_FROM_EMAIL || "founder@tuple.ai";
-    const unsubscribeUrl = process.env.EMAIL_UNSUBSCRIBE_URL || "https://tuple.ai/unsubscribe";
+    const defaultFromEmail = process.env.DEFAULT_FROM_EMAIL || "founder@vpersonalize.com";
+    const unsubscribeUrl = process.env.EMAIL_UNSUBSCRIBE_URL || "https://www.vpersonalize.com/unsubscribe";
     const toEmail = String(body?.to_email || body?.to || "").trim();
     if (!body?.prospect_id || !toEmail || !body?.subject || !body?.body) return NextResponse.json({ success: false, error: "Invalid payload" }, { status: 400 });
     if (!emailRegex.test(toEmail)) return NextResponse.json({ success: false, error: "Invalid email" }, { status: 400 });

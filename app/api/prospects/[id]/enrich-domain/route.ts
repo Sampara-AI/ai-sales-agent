@@ -57,6 +57,8 @@ function sanitizeEnterpriseCopy(text: string) {
   const t = String(text || "");
   return t
     .replace(/sampara ai/gi, "VPersonalize")
+    .replace(/\btuple ai\b/gi, "VPersonalize")
+    .replace(/\bmerch\b/gi, "merchandise")
     .replace(/not enough information( is| was)? available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
     .replace(/not enough information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
     .replace(/limited information available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
@@ -113,7 +115,12 @@ function cleanMarkdown(input: string) {
     cleaned.push(raw);
     if (cleaned.join("\n").length > 9000) break;
   }
-  return cleaned.join("\n").trim();
+  const joined = cleaned.join("\n").trim();
+  const withoutCode = joined.replace(/```[\s\S]*?```/g, " ");
+  const withoutLinks = withoutCode.replace(/\[([^\]]+)\]\([^)]+\)/g, "$1");
+  const withoutHeadings = withoutLinks.replace(/^\s{0,3}#{1,6}\s+/gm, "");
+  const withoutMdBullets = withoutHeadings.replace(/^\s*[-*+]\s+/gm, "");
+  return withoutMdBullets.replace(/\s+\n/g, "\n").trim();
 }
 
 async function firecrawlScrapeMarkdown(url: string, apiKey: string) {
@@ -227,32 +234,33 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     const system =
       "You are an enterprise-grade manufacturing and GTM research assistant for vPersonalize.\n" +
       "You will receive multiple web sources (URLs + extracted excerpts). Use them to synthesize operationally-relevant intelligence.\n" +
-      "Inference is allowed. Fabrication is prohibited.\n\n" +
+      "Inference is allowed. Fabrication is prohibited.\n" +
+      "DO NOT feed raw markdown into your reasoning; treat excerpts as already-cleaned.\n\n" +
       "Return JSON only with this schema:\n" +
       "{\n" +
-      '  company_summary: string,\n' +
-      '  sources_used: { url: string, note: string }[],\n' +
-      '  key_points: string[],\n' +
-      '  operational_signals: string[],\n' +
-      '  inferred_friction: string[],\n' +
-      '  matchmaking: { target: string, pain_points: string[], match_angle: string, core_hook: string },\n' +
-      '  caveats: string[],\n' +
-      "  confidence: number\n" +
+      '  "company_type": string,\n' +
+      '  "business_model": string,\n' +
+      '  "scale_signal": string,\n' +
+      '  "customization_complexity": string,\n' +
+      '  "manufacturing_complexity": string,\n' +
+      '  "inventory_pressure": boolean,\n' +
+      '  "operational_signals": string[],\n' +
+      '  "likely_pain_points": string[],\n' +
+      '  "best_matchmaking_angle": string,\n' +
+      '  "summary": string\n' +
       "}\n\n" +
       "Rules:\n" +
-      "- confidence: 0-100\n" +
-      "- key_points: 4-8 bullets (facts/observations from sources)\n" +
       "- operational_signals: 4-8 bullets (signals like scale, SKU complexity, customization workflows, sustainability pressure)\n" +
-      "- inferred_friction: 3-6 bullets (commercially reasonable inferences, not invented facts)\n" +
-      '- caveats: if sources are thin/unavailable, include: "Additional enrichment signals unavailable. Using imported context + domain intelligence."\n' +
+      "- likely_pain_points: 3-6 bullets (commercially reasonable inferences, not invented facts)\n" +
       "- NEVER use the phrase 'not enough information'.\n" +
-      "- NEVER mention Sampara AI.\n\n" +
-      "Deterministic matchmaking registry:\n" +
-      "- Nike: Enterprise mass customization infrastructure; hook: patented workflow connecting 3D customization directly to production-ready outputs while maximizing nesting efficiency and reducing waste.\n" +
-      "- Mizuno: Reducing pre-production bottlenecks; hook: roster automation where Excel upload generates graded production outputs with names/numbers automatically.\n" +
-      "- SquadStudio: Industrial-grade end-to-end production workflow; hook: automated DXF/AI/SVG pattern workflow eliminating large portions of manual artwork preparation.\n" +
-      "- New Balance: Agile on-demand production; hook: made-to-order pipeline generating production-ready outputs directly from consumer checkout.\n" +
-      "If no registry match, infer closest angle for vPersonalize: 3D visualization + automated grading + pattern generation + production-ready DXF/AI/SVG outputs + manufacturing automation.\n";
+      "- NEVER mention Sampara AI.\n" +
+      "- NEVER use the word 'merch'. Use: merchandise, teamwear, custom apparel.\n\n" +
+      "Deterministic matchmaking registry (STRICT):\n" +
+      "- Nike: Enterprise mass customization infrastructure.\n" +
+      "- Mizuno: Reducing pre-production bottlenecks.\n" +
+      "- SquadStudio: Industrial-grade end-to-end production workflow.\n" +
+      "- New Balance: Agile on-demand production.\n" +
+      "If no registry match, infer the closest angle for vPersonalize: automated grading/pattern generation + production-ready DXF/AI/SVG outputs + roster automation + mass customization workflow.\n";
 
     const user = JSON.stringify({
       prospect_domain: domain,
@@ -260,43 +268,69 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       sources,
     });
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      temperature: 0,
-      max_tokens: 900,
-    });
-    const content = completion.choices?.[0]?.message?.content ?? "";
-    const parsed = safeJsonExtract(content) as any;
-    if (!parsed) return NextResponse.json({ success: false, error: "Model returned invalid JSON" }, { status: 502 });
+    let parsed: any = null;
+    try {
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: system },
+          { role: "user", content: user },
+        ],
+        temperature: 0.55,
+        top_p: 0.9,
+        max_tokens: 900,
+        presence_penalty: 0.4,
+        frequency_penalty: 0.35,
+      });
+      const content = completion.choices?.[0]?.message?.content ?? "";
+      parsed = safeJsonExtract(content) as any;
+    } catch {
+      parsed = null;
+    }
+    if (!parsed) {
+      parsed = {
+        company_type: "",
+        business_model: "",
+        scale_signal: "",
+        customization_complexity: "",
+        manufacturing_complexity: "",
+        inventory_pressure: false,
+        operational_signals: [],
+        likely_pain_points: [],
+        best_matchmaking_angle: "",
+        summary: "",
+      };
+    }
 
-    const summary = String(parsed.company_summary || "").trim();
-    const sourcesUsed = Array.isArray(parsed.sources_used) ? parsed.sources_used : [];
-    const keyPoints = Array.isArray(parsed.key_points) ? parsed.key_points : [];
+    const summary = String(parsed.summary || "").trim();
+    const companyType = String(parsed.company_type || "").trim();
+    const businessModel = String(parsed.business_model || "").trim();
+    const scaleSignal = String(parsed.scale_signal || "").trim();
+    const customizationComplexity = String(parsed.customization_complexity || "").trim();
+    const manufacturingComplexity = String(parsed.manufacturing_complexity || "").trim();
+    const inventoryPressure = Boolean(parsed.inventory_pressure);
     const signals = Array.isArray(parsed.operational_signals) ? parsed.operational_signals : [];
-    const friction = Array.isArray(parsed.inferred_friction) ? parsed.inferred_friction : [];
-    const mm = parsed.matchmaking && typeof parsed.matchmaking === "object" ? parsed.matchmaking : {};
-    const mmTarget = String(mm.target || "").trim();
-    const mmAngle = String(mm.match_angle || "").trim();
-    const mmHook = String(mm.core_hook || "").trim();
-    const caveats = Array.isArray(parsed.caveats) ? parsed.caveats : [];
-    const confidence = Math.max(0, Math.min(100, Number(parsed.confidence ?? 0)));
+    const painPoints = Array.isArray(parsed.likely_pain_points) ? parsed.likely_pain_points : [];
+    const bestAngle = String(parsed.best_matchmaking_angle || "").trim();
+
+    const keyPoints: string[] = [];
+    if (companyType) keyPoints.push(`Company type: ${companyType}`);
+    if (businessModel) keyPoints.push(`Business model: ${businessModel}`);
+    if (scaleSignal) keyPoints.push(`Scale signal: ${scaleSignal}`);
+    if (customizationComplexity) keyPoints.push(`Customization complexity: ${customizationComplexity}`);
+    if (manufacturingComplexity) keyPoints.push(`Manufacturing complexity: ${manufacturingComplexity}`);
+    if (inventoryPressure) keyPoints.push("Inventory pressure: yes");
+
+    const caveats = sources.length
+      ? []
+      : ["Additional enrichment signals unavailable. Using imported context + domain intelligence."];
+    const confidence = Math.max(0, Math.min(100, sources.length ? 40 + sources.length * 10 : 20));
 
     const intelLines: string[] = [];
     intelLines.push("Matchmaking Brief (vPersonalize ↔ Prospect)");
     intelLines.push(`Domain: ${domain}`);
     if (summary) intelLines.push(`Summary: ${sanitizeEnterpriseCopy(summary)}`);
-    if (sourcesUsed.length) {
-      intelLines.push("Sources:");
-      for (const s of sourcesUsed.slice(0, 6)) {
-        const url = String(s?.url || "").trim();
-        const note = sanitizeEnterpriseCopy(String(s?.note || "").trim());
-        if (url) intelLines.push(`- ${url}${note ? ` — ${note}` : ""}`);
-      }
-    } else if (sources.length) {
+    if (sources.length) {
       intelLines.push("Sources:");
       for (const s of sources.slice(0, 4)) intelLines.push(`- ${String(s.url)}${s.title ? ` — ${s.title}` : ""}`);
     } else {
@@ -311,15 +345,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       intelLines.push("Operational signals:");
       for (const s of signals.slice(0, 10)) intelLines.push(`- ${sanitizeEnterpriseCopy(String(s).trim())}`);
     }
-    if (friction.length) {
+    if (painPoints.length) {
       intelLines.push("Likely operational friction:");
-      for (const f of friction.slice(0, 10)) intelLines.push(`- ${sanitizeEnterpriseCopy(String(f).trim())}`);
+      for (const f of painPoints.slice(0, 10)) intelLines.push(`- ${sanitizeEnterpriseCopy(String(f).trim())}`);
     }
-    if (mmTarget || mmAngle || mmHook) {
+    if (bestAngle) {
       intelLines.push("Match angle:");
-      if (mmTarget) intelLines.push(`- Target fit: ${sanitizeEnterpriseCopy(mmTarget)}`);
-      if (mmAngle) intelLines.push(`- Angle: ${sanitizeEnterpriseCopy(mmAngle)}`);
-      if (mmHook) intelLines.push(`- Core hook: ${sanitizeEnterpriseCopy(mmHook)}`);
+      intelLines.push(`- Angle: ${sanitizeEnterpriseCopy(bestAngle)}`);
     }
     if (caveats.length) {
       intelLines.push("Caveats:");
@@ -339,11 +371,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       prospect_id: prospectId,
       domain,
       company_summary: summary,
-      sources_used: sourcesUsed,
       key_points: keyPoints,
       operational_signals: signals,
-      inferred_friction: friction,
-      matchmaking: { target: mmTarget, match_angle: mmAngle, core_hook: mmHook },
+      inferred_friction: painPoints,
+      matchmaking: { target: "", match_angle: bestAngle, core_hook: "" },
       confidence,
     });
   } catch (err: any) {

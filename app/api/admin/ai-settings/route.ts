@@ -27,7 +27,10 @@ function defaults(): AiSettings {
   return {
     brand_name: String(process.env.NEXT_PUBLIC_BRAND_NAME || "VPersonalize").trim(),
     brand_website: brandUrl,
-    brand_one_liner: String(process.env.NEXT_PUBLIC_BRAND_ONE_LINER || "Custom teamwear & merch made easy for clubs, teams, and brands.").trim(),
+    brand_one_liner: String(
+      process.env.NEXT_PUBLIC_BRAND_ONE_LINER ||
+        "Enterprise teamwear and custom apparel manufacturing intelligence that connects digital customization directly to production-ready outputs.",
+    ).trim(),
     tone: "Exciting and confident, not pushy. Value-first. Sound human. Keep it concise. No hype.",
     cta_text: String(process.env.EMAIL_FOOTER_LINK_TEXT || "Book a quick 15-minute chat").trim(),
     cta_url: String(process.env.EMAIL_FOOTER_LINK_URL || "https://cal.com/vpersonalize/intro").trim(),
@@ -38,7 +41,7 @@ function defaults(): AiSettings {
     credibility_line: String(process.env.EMAIL_CREDIBILITY_LINE || "We help teams launch on-brand customization without operational headaches.").trim(),
     temperature: 0.55,
     max_tokens: 700,
-    banned_phrases: ["Tuple AI", "6 patents", "AI Architect"],
+    banned_phrases: ["Sampara AI", "6 patents", "AI Architect"],
   };
 }
 

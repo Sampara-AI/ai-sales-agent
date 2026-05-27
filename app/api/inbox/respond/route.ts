@@ -36,7 +36,7 @@ async function loadAiSettings(admin: any) {
     qualification_line: "If helpful, what product type are you considering, what size range, and roughly how many units?",
     temperature: 0.2,
     max_tokens: 700,
-    banned_phrases: ["Tuple AI", "6 patents", "AI Architect"],
+    banned_phrases: ["Sampara AI", "6 patents", "AI Architect"],
   };
   try {
     const res = await admin.from("audit_events").select("meta").eq("action", "ai_settings").order("created_at", { ascending: false }).limit(1);
@@ -58,6 +58,8 @@ function sanitizeEnterpriseCopy(text: string) {
   const t = String(text || "");
   return t
     .replace(/sampara ai/gi, "VPersonalize")
+    .replace(/\btuple ai\b/gi, "VPersonalize")
+    .replace(/\bmerch\b/gi, "merchandise")
     .replace(/not enough information( is| was)? available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
     .replace(/not enough information/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
     .replace(/limited information available/gi, "Additional enrichment signals unavailable. Using imported context + domain intelligence.")
@@ -157,9 +159,32 @@ export async function POST(req: NextRequest) {
     "You must be grounded and product-aware.\n\n" +
     "You will receive:\n- inbound_email (subject/body)\n- knowledge_context (snippets with chunk_id)\n\n" +
     "Task:\n1) Classify intent into one of: curiosity | pricing_inquiry | technical_evaluation | implementation_inquiry | meeting_intent | objection | unsubscribe\n2) Draft a concise businesslike reply (no hype). Use only the provided knowledge snippets as factual basis.\n3) If knowledge is insufficient, ask 1-2 clarifying questions and do NOT invent details.\n4) Decide whether to escalate to a human when intent is pricing_inquiry OR meeting_intent OR implementation_inquiry OR technical_evaluation.\n\n" +
+    "Also extract commercial signal dimensions for enterprise evaluation:\n" +
+    "- buying_intent: low | medium | high\n" +
+    "- urgency: low | medium | high\n" +
+    "- objections: string[]\n" +
+    "- technical_depth: low | medium | high\n" +
+    "- pricing_sensitivity: low | medium | high\n" +
+    "- integration_complexity: low | medium | high\n\n" +
     "Return JSON only with this schema:\n" +
-    "{ intent: string, escalate: boolean, confidence: number, summary: string, next_action: string, response_subject: string, response_body: string, references: { chunk_id: string, note: string }[] }\n\n" +
+    "{\n" +
+    "  intent: string,\n" +
+    "  escalate: boolean,\n" +
+    "  confidence: number,\n" +
+    "  buying_intent: string,\n" +
+    "  urgency: string,\n" +
+    "  objections: string[],\n" +
+    "  technical_depth: string,\n" +
+    "  pricing_sensitivity: string,\n" +
+    "  integration_complexity: string,\n" +
+    "  summary: string,\n" +
+    "  next_action: string,\n" +
+    "  response_subject: string,\n" +
+    "  response_body: string,\n" +
+    "  references: { chunk_id: string, note: string }[]\n" +
+    "}\n\n" +
     "Rules:\n- confidence: 0-100\n- response_body: 80-150 words\n- no emojis, no markdown, no exclamation points\n- references should cite which chunk_id(s) were used and why (internal traceability)" +
+    "\n- NEVER use the word 'merch' (use merchandise, teamwear, custom apparel)" +
     (qualificationLine ? `\n- Include this polite qualifier line once when relevant: "${qualificationLine}"` : "") +
     (banned.length ? `\n- Do not mention these phrases: ${banned.map((x: string) => `"${x}"`).join(", ")}` : "");
 
@@ -174,8 +199,11 @@ export async function POST(req: NextRequest) {
       { role: "system", content: system },
       { role: "user", content: user },
     ],
-    temperature: Math.max(0, Math.min(1, Number((aiSettings as any)?.temperature ?? 0.2))),
-    max_tokens: Math.max(200, Math.min(1200, Number((aiSettings as any)?.max_tokens ?? 700))),
+    temperature: 0.55,
+    top_p: 0.9,
+    max_tokens: 900,
+    presence_penalty: 0.4,
+    frequency_penalty: 0.35,
   });
 
   const content = completion.choices?.[0]?.message?.content ?? "";
@@ -192,6 +220,12 @@ export async function POST(req: NextRequest) {
   const intent = String(parsed?.intent || "").trim() || "curiosity";
   const escalate = Boolean(parsed?.escalate);
   const confidence = Math.max(0, Math.min(100, Number(parsed?.confidence ?? 0)));
+  const buyingIntent = String(parsed?.buying_intent || "").trim() || "medium";
+  const urgency = String(parsed?.urgency || "").trim() || "medium";
+  const objections = Array.isArray(parsed?.objections) ? parsed.objections.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 8) : [];
+  const technicalDepth = String(parsed?.technical_depth || "").trim() || "medium";
+  const pricingSensitivity = String(parsed?.pricing_sensitivity || "").trim() || "medium";
+  const integrationComplexity = String(parsed?.integration_complexity || "").trim() || "medium";
   const summary = sanitizeEnterpriseCopy(String(parsed?.summary || "").trim());
   const nextAction = sanitizeEnterpriseCopy(String(parsed?.next_action || "").trim());
   const responseSubject = String(parsed?.response_subject || "").trim() || (subject ? `Re: ${subject}` : "Re:");
@@ -235,6 +269,12 @@ export async function POST(req: NextRequest) {
     intent,
     escalate,
     confidence,
+    buying_intent: buyingIntent,
+    urgency,
+    objections,
+    technical_depth: technicalDepth,
+    pricing_sensitivity: pricingSensitivity,
+    integration_complexity: integrationComplexity,
     signal,
     signal_reason: signalReason,
     recommended_action: recommendedAction,

@@ -30,11 +30,11 @@ export async function POST(req: Request) {
       <div style="background:#0b0b0f;color:#e5e7eb;font-family:Inter,Arial,sans-serif;padding:24px">
         <div style="max-width:640px;margin:0 auto;background:#12131a;border:1px solid rgba(255,255,255,0.08);border-radius:12px">
           <div style="padding:24px">
-            <h2 style="margin:0 0 8px 0;color:#fff;font-size:20px">Welcome to Tuple AI – Free AI Sales Agent</h2>
+            <h2 style="margin:0 0 8px 0;color:#fff;font-size:20px">Welcome to VPersonalize</h2>
             <p style="margin:0 0 12px 0">You're set to deploy the ${type === "free" ? "Free" : "Pro"} version.</p>
             <div style="margin-top:12px">
               <div>• GitHub: <a href="https://github.com/" style="color:#60a5fa">Repository</a></div>
-              <div>• Video guide: <a href="https://tuple.ai/guide" style="color:#60a5fa">Watch setup</a></div>
+              <div>• Video guide: <a href="https://www.vpersonalize.com/guide" style="color:#60a5fa">Watch setup</a></div>
               <div>• API checklist: Groq, Supabase, Resend, Apollo, Hunter</div>
               <div>• Next steps: Open the guide and follow the steps</div>
             </div>
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
         </div>
       </div>`;
 
-    await resend.emails.send({ from: `Tuple AI <noreply@tuple.ai>`, to: email, subject: `Your AI Sales Agent Setup Guide`, html });
+    await resend.emails.send({ from: `VPersonalize <noreply@vpersonalize.com>`, to: email, subject: `Your Setup Guide`, html });
 
     return NextResponse.json({ success: true, message: "Check your email!" });
   } catch (err: any) {
