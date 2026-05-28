@@ -43,7 +43,7 @@ export async function POST(req: Request) {
         </div>
       </div>`;
 
-    await resend.emails.send({ from: `VPersonalize <noreply@vpersonalize.com>`, to: email, subject: `Your Setup Guide`, html });
+    await resend.emails.send({ from: `vPersonalize Team <hello@tupleai.co.in>`, to: email, subject: `Your Setup Guide`, html });
 
     return NextResponse.json({ success: true, message: "Check your email!" });
   } catch (err: any) {

@@ -24,7 +24,7 @@ export async function POST(req: Request) {
     if (ins.error) return NextResponse.json({ success: false, error: ins.error.message || "Failed to save" }, { status: 500 });
 
     const resend = new Resend(resendKey);
-    const notifyTo = process.env.ADMIN_EMAIL || "founders@vpersonalize.com";
+    const notifyTo = process.env.ADMIN_EMAIL || "founders@tupleai.co.in";
     const html = `
       <div style="font-family:Inter,Arial,sans-serif">
         <h3>New Setup Call Request</h3>
@@ -32,7 +32,7 @@ export async function POST(req: Request) {
         <div>Email: ${email}</div>
         <div>Preferred time: ${preferred_time || "n/a"}</div>
       </div>`;
-    await resend.emails.send({ from: `VPersonalize <noreply@vpersonalize.com>`, to: notifyTo, subject: `Setup Call Requested`, html });
+    await resend.emails.send({ from: `vPersonalize Team <hello@tupleai.co.in>`, to: notifyTo, subject: `Setup Call Requested`, html });
 
     return NextResponse.json({ success: true, message: "Booked! We’ll confirm by email." });
   } catch (err: any) {

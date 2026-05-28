@@ -143,8 +143,8 @@ async function runSendFollowup(job: JobRow, baseUrl: string) {
     } catch {}
   }
 
-  const fromName = process.env.DEFAULT_FROM_NAME || "VPersonalize";
-  const fromEmail = process.env.DEFAULT_FROM_EMAIL || "founders@vpersonalize.com";
+  const fromName = process.env.DEFAULT_FROM_NAME || "vPersonalize Team";
+  const fromEmail = process.env.DEFAULT_FROM_EMAIL || "hello@tupleai.co.in";
   await runSendEmail({ ...job, payload: { prospect_id: prospectId, to_email: p.email, subject, body, from_name: fromName, from_email: fromEmail } } as JobRow, baseUrl);
 
   const nextGap = number === 1 ? (days[1] || 7) : number === 2 ? (days[2] || 14) : null;

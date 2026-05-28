@@ -382,8 +382,8 @@ export async function POST(req: NextRequest) {
         }
         if (!requireManual && toEmail) {
           const subject = result.subject_lines?.[0] || `Quick note for ${toEmail}`;
-          const fromName = String((aiSettings as any)?.sender_name || process.env.DEFAULT_FROM_NAME || "VPersonalize").trim();
-          const fromEmail = String(process.env.DEFAULT_FROM_EMAIL || "founder@vpersonalize.com").trim();
+          const fromName = String(process.env.DEFAULT_FROM_NAME || "vPersonalize Team").trim();
+          const fromEmail = String(process.env.DEFAULT_FROM_EMAIL || "hello@tupleai.co.in").trim();
           const follow1 = Math.max(1, Number(process.env.DEFAULT_FOLLOWUP_DAYS || 3));
           const nextFollow = new Date(Date.now() + follow1 * 86400000).toISOString();
           await enqueueJob(

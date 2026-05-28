@@ -50,6 +50,15 @@ async function loadAiSettings(adminDb: any) {
   }
 }
 
+function normalizeEmail(email: string) {
+  return String(email || "").trim().toLowerCase();
+}
+
+function isAllowedSender(fromEmail: string) {
+  const e = normalizeEmail(fromEmail);
+  return e.endsWith("@tupleai.co.in") || e.endsWith("@mail.tupleai.co.in");
+}
+
 export async function POST(req: NextRequest) {
   try {
     const demoMode = String(process.env.NEXT_PUBLIC_DEMO_MODE || "").toLowerCase() === "true";
@@ -61,8 +70,8 @@ export async function POST(req: NextRequest) {
 
     const body = (await req.json()) as SendBody;
     const emailRegex = /[^@\s]+@[^@\s]+\.[^@\s]+/;
-    const defaultFromEmail = process.env.DEFAULT_FROM_EMAIL || "founder@vpersonalize.com";
-    const unsubscribeUrl = process.env.EMAIL_UNSUBSCRIBE_URL || "https://www.vpersonalize.com/unsubscribe";
+    const defaultFromEmail = process.env.DEFAULT_FROM_EMAIL || "hello@tupleai.co.in";
+    const unsubscribeUrl = process.env.EMAIL_UNSUBSCRIBE_URL || "https://tupleai.co.in/unsubscribe";
     const toEmail = String(body?.to_email || body?.to || "").trim();
     if (!body?.prospect_id || !toEmail || !body?.subject || !body?.body) return NextResponse.json({ success: false, error: "Invalid payload" }, { status: 400 });
     if (!emailRegex.test(toEmail)) return NextResponse.json({ success: false, error: "Invalid email" }, { status: 400 });
@@ -81,10 +90,11 @@ export async function POST(req: NextRequest) {
 
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
     const aiSettings = await loadAiSettings(supabase as any);
-    const defaultFromName = String((aiSettings as any)?.sender_name || "VPersonalize").trim();
+    const defaultFromName = String(process.env.DEFAULT_FROM_NAME || "vPersonalize Team").trim();
     const fromName = String(body.from_name || defaultFromName).trim();
     const fromEmail = String(body.from_email || defaultFromEmail).trim();
     if (!emailRegex.test(fromEmail)) return NextResponse.json({ success: false, error: "Invalid email" }, { status: 400 });
+    if (!isAllowedSender(fromEmail)) return NextResponse.json({ success: false, error: "Verified sending domain unavailable." }, { status: 400 });
 
     const footerLinkText = String((aiSettings as any)?.cta_text || process.env.EMAIL_FOOTER_LINK_TEXT || "Book a quick 15-minute chat").trim();
     const footerLinkUrl = String((aiSettings as any)?.cta_url || process.env.EMAIL_FOOTER_LINK_URL || "https://cal.com/vpersonalize/intro").trim();
@@ -176,7 +186,12 @@ export async function POST(req: NextRequest) {
       tags: [{ name: "prospect_id", value: body.prospect_id }, ...(body.email_draft_id ? [{ name: "email_draft_id", value: body.email_draft_id }] : [])],
     });
     if ((sendRes as any)?.error) {
-      const errMsg = (sendRes as any).error?.message || "Send failed";
+      const rawMsg = String((sendRes as any).error?.message || "Send failed");
+      const lower = rawMsg.toLowerCase();
+      const errMsg =
+        lower.includes("domain") || lower.includes("verify") || lower.includes("verified") || lower.includes("from")
+          ? "Verified sending domain unavailable."
+          : rawMsg;
       return NextResponse.json({ success: false, error: errMsg }, { status: 502 });
     }
 

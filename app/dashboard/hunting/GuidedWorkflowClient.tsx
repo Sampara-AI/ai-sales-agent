@@ -438,6 +438,8 @@ export default function GuidedWorkflowClient(props: {
       for (const p of list) next[p.id] = { ...(next[p.id] || { state: "pending" }), state: "queued" };
       return next;
     });
+    let failedCount = 0;
+    let domainUnavailable = false;
     for (const p of list) {
       const toEmail = String(p.email || "").trim().toLowerCase();
       const d = draftByProspect[p.id] || null;
@@ -447,6 +449,7 @@ export default function GuidedWorkflowClient(props: {
       const body = String(d?.body || fallbackBody || "").trim();
       if (!isValidEmail(toEmail) || !body) {
         setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "queued" }), state: "failed", error: "Missing email or draft" } }));
+        failedCount += 1;
         done += 1;
         setProgress({ current: done, total, label: "Sending…" });
         continue;
@@ -471,7 +474,10 @@ export default function GuidedWorkflowClient(props: {
         if (!res.ok || !j?.success) throw new Error(String(j?.error || "send failed"));
         setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "sending" }), state: "sent", sent_at: new Date().toISOString() } }));
       } catch (e: any) {
-        setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "sending" }), state: "failed", error: String(e?.message || "send failed") } }));
+        const msg = String(e?.message || "send failed");
+        if (msg.includes("Verified sending domain unavailable")) domainUnavailable = true;
+        failedCount += 1;
+        setRowState((s) => ({ ...s, [p.id]: { ...(s[p.id] || { state: "sending" }), state: "failed", error: msg } }));
       }
       done += 1;
       setProgress({ current: done, total, label: "Sending…" });
@@ -480,7 +486,9 @@ export default function GuidedWorkflowClient(props: {
     await refresh(campaignId);
     setBusy(null);
     setProgress(null);
-    setBanner("Send complete");
+    if (domainUnavailable) setBanner("Verified sending domain unavailable.");
+    else if (failedCount > 0) setBanner(`Send complete (${total - failedCount} sent, ${failedCount} failed)`);
+    else setBanner("Send complete");
     setWorkflowStage("sent");
     setStep("send");
     setUrl(campaignId, "send");
@@ -598,33 +606,23 @@ export default function GuidedWorkflowClient(props: {
         </div>
       </div>
 
-      {banner && (
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800">
-          {busy ? (
-            <div className="flex items-center gap-2">
-              <Spinner />
-              <span>
-                {busy.label}
-                {progress ? ` (${progress.current}/${progress.total})` : ""}
-              </span>
-            </div>
-          ) : (
-            banner
-          )}
-        </div>
-      )}
-
-      {!banner && busy && (
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800">
-          <div className="flex items-center gap-2">
-            <Spinner />
-            <span>
-              {busy.label}
-              {progress ? ` (${progress.current}/${progress.total})` : ""}
-            </span>
+      <div className="mt-4 min-h-[52px]">
+        {(banner || busy) && (
+          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800 transition-opacity duration-200">
+            {busy ? (
+              <div className="flex items-center gap-2">
+                <Spinner />
+                <span>
+                  {busy.label}
+                  {progress ? ` (${progress.current}/${progress.total})` : ""}
+                </span>
+              </div>
+            ) : (
+              banner
+            )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-6">
         {([
@@ -893,7 +891,7 @@ export default function GuidedWorkflowClient(props: {
         </div>
       </div>
 
-      <div className="mt-6 overflow-x-auto rounded-xl border border-slate-200">
+      <div className="mt-6 min-h-[320px] overflow-x-auto rounded-xl border border-slate-200">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600">
             <tr>

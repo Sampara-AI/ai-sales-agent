@@ -249,7 +249,7 @@ export default function Home() {
             <button onClick={async () => { await track("cta_deploy_free"); router.push("/auth/signup"); }} className="rounded-xl bg-slate-900 px-6 py-3 text-sm font-medium text-white">Deploy Free Version</button>
             <button onClick={() => { setCallOpen(true); track("cta_get_setup"); }} className="rounded-xl border border-slate-200 bg-white px-6 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50">Get Professional Setup</button>
           </div>
-          <div className="mt-3 text-sm text-slate-500">Questions? <a href="mailto:founders@vpersonalize.com" className="underline">founders@vpersonalize.com</a></div>
+          <div className="mt-3 text-sm text-slate-500">Questions? <a href="mailto:founders@tupleai.co.in" className="underline">founders@tupleai.co.in</a></div>
         </div>
       </section>
 
