@@ -51,6 +51,79 @@ function cleanPromptText(input: string) {
   return withoutMdBullets.replace(/\s+/g, " ").trim();
 }
 
+function stableHash(input: string) {
+  const s = String(input || "");
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+function pickStructureVariant(seed: string) {
+  const variants = [
+    {
+      key: "A",
+      directive:
+        "Start with a concrete operational observation from the sources. Then name the specific handoff where cost/time shows up (design → grading → production-ready files → factory). Close with a consultative question about their current handoff ownership.",
+      cta_style: "workflow-question",
+    },
+    {
+      key: "B",
+      directive:
+        "Open with a specific scaling implication (SKU count, roster-driven personalization, season drops, multi-category). Then state the operational failure mode (version drift, rework, throughput loss). Connect one vPersonalize capability and ask a sharp 2-option question.",
+      cta_style: "two-option",
+    },
+    {
+      key: "C",
+      directive:
+        "Open with a contrast: what most teams optimize (front-end customization experience) vs the expensive part (production translation). Then connect to vPersonalize as production-ready output automation and ask whether they run made-to-order, pre-built inventory, or a hybrid.",
+      cta_style: "operating-model",
+    },
+    {
+      key: "D",
+      directive:
+        "Open with a coordination insight (sales/partner portals, team orders, bulk programs). Then connect friction to downstream production file readiness and roster/name-number accuracy. Connect to roster automation + DXF/AI/SVG outputs and ask what breaks first when volume spikes.",
+      cta_style: "failure-point",
+    },
+  ] as const;
+  const idx = stableHash(seed) % variants.length;
+  return variants[idx];
+}
+
+function hasWeakAiLanguage(text: string) {
+  const t = String(text || "").toLowerCase();
+  const weak = [
+    " you likely ",
+    " likely ",
+    " may ",
+    " probably ",
+    " appears to ",
+    " could benefit ",
+    " could ",
+    " might ",
+    " maybe ",
+    " perhaps ",
+  ];
+  return weak.some((w) => t.includes(w));
+}
+
+function stripWeakAiLanguage(text: string) {
+  let t = String(text || "");
+  t = t.replace(/\byou likely\b/gi, "you");
+  t = t.replace(/\blikely\b/gi, "");
+  t = t.replace(/\bprobably\b/gi, "");
+  t = t.replace(/\bappears to\b/gi, "");
+  t = t.replace(/\bcould benefit from\b/gi, "");
+  t = t.replace(/\bcould\b/gi, "");
+  t = t.replace(/\bmight\b/gi, "");
+  t = t.replace(/\bmaybe\b/gi, "");
+  t = t.replace(/\bperhaps\b/gi, "");
+  t = t.replace(/\bmay\b/g, "");
+  return t.replace(/\s+/g, " ").trim();
+}
+
 function resolveMatchmakingAngle(input: { company?: string; domain?: string }) {
   const rawCompany = String(input.company || "").trim();
   const rawDomain = String(input.domain || "").trim().toLowerCase();
@@ -268,6 +341,7 @@ export async function POST(req: NextRequest) {
 
     const banned = Array.isArray(aiSettings.banned_phrases) ? aiSettings.banned_phrases : [];
     const qualificationLine = String((aiSettings as any)?.qualification_line || "").trim();
+    const structureVariant = pickStructureVariant(prospect_id || `${company}|${prospectDomain}`);
     const system =
       `You write highly personalized, commercially intelligent outreach emails on behalf of ${aiSettings.brand_name} (vPersonalize).\n\n` +
       `vPersonalize positioning:\n` +
@@ -279,17 +353,21 @@ export async function POST(req: NextRequest) {
       (matchmaking.registry_target
         ? `- Target match: ${matchmaking.registry_target}\n- Match angle: ${matchmaking.match_angle}\n- Core hook: ${matchmaking.core_hook}\n`
         : `- Match angle: ${matchmaking.match_angle}\n- Core hook: ${matchmaking.core_hook}\n`) +
+      `Synthesis diversification (deterministic):\n- Structure variant: ${structureVariant.key}\n- Directive: ${structureVariant.directive}\n- CTA style: ${structureVariant.cta_style}\n\n` +
       `Tone:\n${aiSettings.tone}\n\n` +
       "Rules:\n" +
-      "- Start with a sharp operational observation derived from recent_activity (sources, key points, signals)\n" +
-      "- Identify likely friction/pain (commercially reasonable inference)\n" +
-      "- Connect the specific vPersonalize capability that matches that friction (matchmaking)\n" +
+      "- Start with a specific operational observation from the provided sources/key points/signals\n" +
+      "- Infer commercially plausible friction without hedging language\n" +
+      "- Connect the relevant vPersonalize capability and explain why it matters operationally\n" +
       "- Use only facts from recent_activity (including enrichment sources) and knowledge_context as factual basis; inference is allowed but fabrication is prohibited\n" +
       "- Avoid stalker-ish phrasing; do not claim private/internal facts\n" +
       "- NEVER use 'hope this email finds you well'\n" +
       "- NEVER use the word 'merch' (use merchandise, teamwear, custom apparel)\n" +
-      "- Keep it 90-140 words\n" +
-      "- 1 clear CTA framed consultatively (not 'book a call'); ask what they optimize for (turnaround / flexibility / inventory / automation / consistency)\n" +
+      "- NEVER use weak AI words/phrases: likely, may, probably, appears to, could, might, maybe, perhaps\n" +
+      "- Do NOT open with probabilistic/generic phrasing like 'You likely...' or 'Your team may...'\n" +
+      "- Follow the chosen Structure variant directive; do not reuse a fixed template across companies\n" +
+      "- Keep it 120-180 words\n" +
+      "- CTA must be strategic/consultative and vary by company; do not repeat generic optimization questions\n" +
       (qualificationLine ? `- Include this polite qualifier line once when relevant: "${qualificationLine}"\n` : "") +
       "- No emojis, no markdown, no exclamation points\n" +
       "- Avoid hype/buzzwords\n" +
@@ -321,10 +399,10 @@ export async function POST(req: NextRequest) {
         frequency_penalty: 0.35,
       });
       completionContent = completion.choices?.[0]?.message?.content ?? "";
-      if (!banned.length) break;
       const lower = completionContent.toLowerCase();
-      const hit = banned.find((p: string) => p && lower.includes(String(p).toLowerCase()));
-      if (!hit) break;
+      const bannedHit = banned.find((p: string) => p && lower.includes(String(p).toLowerCase()));
+      const weakHit = hasWeakAiLanguage(completionContent);
+      if (!bannedHit && !weakHit) break;
     }
 
     const parsed = extractJson(completionContent) as OutreachResult | null;
@@ -335,11 +413,11 @@ export async function POST(req: NextRequest) {
     const personalization_score = Math.max(0, Math.min(100, Number(parsed.personalization_score ?? 0)));
     const confidence_score = Math.max(0, Math.min(100, Number(parsed.confidence_score ?? 0)));
     const result: OutreachResult = {
-      email_body: sanitizeEnterpriseCopy(parsed.email_body),
+      email_body: sanitizeEnterpriseCopy(stripWeakAiLanguage(parsed.email_body)),
       subject_lines: parsed.subject_lines.slice(0, 3),
       personalization_score,
       confidence_score,
-      reasoning: sanitizeEnterpriseCopy(parsed.reasoning ?? ""),
+      reasoning: sanitizeEnterpriseCopy(stripWeakAiLanguage(parsed.reasoning ?? "")),
     };
 
     const insertPayload = {
