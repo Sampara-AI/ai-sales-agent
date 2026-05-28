@@ -704,6 +704,7 @@ export default function GuidedWorkflowClient(props: {
           <div ref={refs.upload}>
             <div className="text-sm font-semibold text-slate-900">1) Upload CSV</div>
             <div className="mt-1 text-xs text-slate-600">Upload and immediately populate the table. This unlocks enrichment.</div>
+            <div className="mt-3 text-xs font-semibold text-slate-900">Choose CSV file</div>
             <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
               <input
                 type="file"
